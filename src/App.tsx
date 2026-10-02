@@ -52,7 +52,7 @@ type TimeOfDay = 'morning' | 'noon' | 'night';
 
 export default function App() {
   const navigate = useNavigate();
-  const { profile, selectedNeighborhood, setProfile, setSelectedNeighborhood, setCommuteSession } = useRehearsal();
+  const { profile, selectedNeighborhood, setProfile, setSelectedNeighborhood, setCommuteSession, setNegotiationOutcome } = useRehearsal();
 
   const [trackMode, setTrackMode] = useState<'residential' | 'business'>(profile.track || 'residential');
   const [showCoach, setShowCoach] = useState(false);
@@ -95,9 +95,10 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
+    const weatherArea = findAbuDhabiArea(selectedNeighborhood) || ABU_DHABI_AREAS[0];
     const refreshWeather = async () => {
       try {
-        const response = await fetch('https://api.open-meteo.com/v1/forecast?latitude=24.4965&longitude=54.6036&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day&timezone=Asia%2FDubai');
+        const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${weatherArea.latitude}&longitude=${weatherArea.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day&timezone=Asia%2FDubai`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         if (!mounted || !data.current) return;
@@ -138,7 +139,7 @@ export default function App() {
       mounted = false;
       window.clearInterval(refreshId);
     };
-  }, []);
+  }, [selectedNeighborhood]);
 
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -215,6 +216,16 @@ export default function App() {
         { neighborhood: selectedNeighborhood, priorities: profile.worries }
       );
       setAiState(response);
+      if (response.locationName && response.locationName !== selectedNeighborhood) {
+        setSelectedNeighborhood(response.locationName);
+        const destinationArea = findAbuDhabiArea(response.locationName);
+        if (destinationArea) {
+          setTrackMode(destinationArea.track);
+          setProfile({ track: destinationArea.track });
+        }
+        setCommuteSession({ completed: false, district: response.locationName });
+        setNegotiationOutcome({ completed: false, district: response.locationName, missedQuestions: [] });
+      }
       conversationRef.current = [...historyWithRequest, { role: 'assistant', text: response.voiceReply }];
       speakWithSiriVoice(response.voiceReply);
 
@@ -222,8 +233,10 @@ export default function App() {
       if (response.routeDetails) {
         setCommuteSession({
           completed: true,
+          district: response.locationName || selectedNeighborhood,
+          origin: response.locationName || selectedNeighborhood,
           mode: response.routeDetails.routeType,
-          destination: 'Medeor Medical Clinic',
+          destination: response.routeDestination || 'Mapped destination',
           distanceKm: response.routeDetails.distanceKm,
           durationMins: response.routeDetails.durationMins,
           heatWarning: liveWeather.apparentTemp >= 32,
@@ -248,6 +261,8 @@ export default function App() {
     setTrackMode(area.track);
     setProfile({ track: area.track });
     setSelectedNeighborhood(area.name);
+    setCommuteSession({ completed: false, district: area.name });
+    setNegotiationOutcome({ completed: false, district: area.name, missedQuestions: [] });
     const nearbyPois = ABU_DHABI_POIS.filter((poi) =>
       Math.abs(poi.latitude - area.latitude) < 0.07 && Math.abs(poi.longitude - area.longitude) < 0.07,
     );
@@ -289,6 +304,20 @@ export default function App() {
           nearbyPlaces={routeNearbyPlaces}
           temperature={liveWeather.temp}
           apparentTemperature={liveWeather.apparentTemp}
+          onWalkRecorded={(walk) => setCommuteSession({
+            completed: true,
+            district: activeArea.name,
+            origin: walk.origin,
+            mode: 'foot',
+            destination: walk.destination,
+            distanceKm: walk.distanceKm,
+            durationMins: walk.durationMins,
+            heatWarning: liveWeather.apparentTemp >= 32,
+            apparentTemp: liveWeather.apparentTemp,
+            weatherIsLive: liveWeather.isLive,
+            isRealRouting: true,
+            routingSource: walk.source,
+          })}
         />
       </Suspense>
 

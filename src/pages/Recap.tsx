@@ -1,143 +1,66 @@
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { ArrowRight, ArrowUpRight, Check, Compass, MapPin, RotateCcw, Route, ShieldCheck, Sun, Users, Briefcase } from 'lucide-react';
+import ParallelLogo from '../components/ParallelLogo';
 import { useRehearsal } from '../context/RehearsalContext';
-import { Check, ArrowRight, RotateCcw, AlertTriangle, Sparkles } from 'lucide-react';
 
 export default function Recap() {
   const navigate = useNavigate();
   const { profile, selectedNeighborhood, commute, negotiation, resetRehearsal } = useRehearsal();
+  const routeHere = commute.completed && commute.district === selectedNeighborhood;
+  const negotiationHere = negotiation.completed && negotiation.district === selectedNeighborhood;
   const isBusiness = profile.track === 'business';
-
-  const rehearsalSummary = isBusiness
-    ? negotiation.completed
-      ? `You practiced a business setup conversation for ${selectedNeighborhood}. Treat the coach's notes as questions to verify with the relevant authority before acting.`
-      : `You selected the business track for ${selectedNeighborhood}, but have not completed an advisor practice turn yet.`
-    : [
-        commute.completed
-          ? commute.mode === 'ac_transit'
-            ? `You explored an illustrative air-conditioned transit scenario to ${commute.destination}; its bus segment and timing are demo data.`
-            : `You rehearsed a ${commute.distanceKm.toFixed(1)} km walking estimate to ${commute.destination}.`
-          : 'You have not recorded a commute rehearsal yet.',
-        negotiation.completed
-          ? 'You practiced lease questions with the landlord coach and saved a checklist for your real arrival.'
-          : 'You have not completed a landlord conversation yet.'
-      ].join(' ');
+  const placeTitle = selectedNeighborhood || 'Abu Dhabi';
 
   return (
-    <div className="w-full min-h-screen flex items-center justify-center bg-sand-900 text-white relative overflow-hidden p-6">
-      <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1512632578888-169bbbc64f33?auto=format&fit=crop&q=80')] bg-cover bg-center opacity-10 mix-blend-overlay" />
+    <main className="recap-page relative h-screen overflow-y-auto text-white">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_22%,rgba(140,188,174,.16),transparent_37%),radial-gradient(circle_at_85%_80%,rgba(218,182,112,.1),transparent_36%)]" />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[.06]" style={{ backgroundImage: 'linear-gradient(to right, white 1px, transparent 1px)', backgroundSize: '96px 100%' }} />
+      <div className="relative mx-auto flex min-h-full max-w-[1280px] flex-col px-6 pb-8 pt-7 sm:px-10 lg:px-12">
+        <header className="flex items-center justify-between gap-4 border-b border-white/10 pb-6">
+          <ParallelLogo size="compact" />
+          <div className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[.19em] text-white/55"><span className="hidden sm:inline">Your rehearsal memory</span><span className="h-px w-6 bg-[#ddbf81]" /><span className="text-[#e3c68b]">05 / 05</span></div>
+        </header>
 
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2, duration: 0.8 }}
-        className="text-center relative z-10 max-w-3xl w-full"
-      >
-        <span className="text-xs font-black uppercase tracking-[0.25em] text-gold bg-gold/10 px-4 py-1.5 rounded-full border border-gold/30 inline-block mb-4">
-          Step 5 of 5: Your Rehearsal Memory
-        </span>
-
-        <h1 className="text-4xl md:text-5xl font-black mb-6 leading-tight">
-          Arrival shock becomes <br />
-          <span className="text-gold font-sans">déjà vu.</span>
-        </h1>
-
-        <p className="text-sm text-sand-300 mb-8 max-w-lg mx-auto">
-          {profile.name} · {profile.role} · {selectedNeighborhood}
-        </p>
-
-        <div className="glass-panel-dark p-8 md:p-10 border border-gold/40 text-left relative overflow-hidden rounded-3xl shadow-2xl">
-          <div className="absolute top-0 left-0 w-1.5 h-full bg-gold" />
-          <h2 className="text-xl font-bold text-white mb-3 flex items-center gap-2">
-            <Sparkles size={18} className="text-gold" /> Session debrief
-          </h2>
-          <p className="text-base text-white/90 leading-relaxed mb-6">{rehearsalSummary}</p>
-
-          <div className="space-y-3 border-t border-white/10 pt-5 text-sm">
-            <div className="flex items-start gap-3">
-              <span className={`w-5 h-5 rounded-full ${commute.completed ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/10 text-white/40'} flex items-center justify-center shrink-0`}>
-                {commute.completed ? <Check size={13} /> : <AlertTriangle size={13} />}
-              </span>
-              <span>
-                <strong>Commute:</strong>{' '}
-                {commute.completed
-                  ? `${commute.mode === 'ac_transit' ? 'Illustrative AC transit scenario' : 'Walking route estimate'} · ${commute.distanceKm.toFixed(1)} km · ${commute.durationMins} min`
-                  : 'Not rehearsed yet'}
-                {commute.completed && <span className="block text-white/60 text-xs mt-1">{commute.routingSource}</span>}
-              </span>
+        <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .55 }} className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-[.9fr_1.1fr] lg:gap-16 lg:py-14">
+          <section className="max-w-[540px]">
+            <div className="mb-6 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[.22em] text-[#e0c589]"><span className="h-px w-8 bg-[#e0c589]" /> Before day one</div>
+            <h1 className="text-[clamp(44px,5.2vw,78px)] font-semibold leading-[1.06] tracking-[-.055em]">A clearer first day starts <span className="text-[#dec38a]">here.</span></h1>
+            <p className="mt-7 max-w-[470px] text-base leading-[1.75] text-[#c5d2cf]/75">You have explored a real Abu Dhabi district and started turning the unknowns into questions, routes, and next steps you can act on.</p>
+            <div className="mt-9 flex flex-wrap items-center gap-2.5">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[.055] px-3.5 py-2 text-xs font-medium text-white/85"><MapPin size={13} className="text-[#e0c589]" />{placeTitle}</span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[.055] px-3.5 py-2 text-xs font-medium text-white/75">{isBusiness ? <Briefcase size={13} className="text-[#8bc8be]" /> : <Users size={13} className="text-[#8bc8be]" />}{isBusiness ? 'Business setup' : 'Life and family'}</span>
+              {profile.name && <span className="text-xs text-white/45">Prepared for {profile.name}</span>}
             </div>
-
-            {commute.completed && (
-              <div className="flex items-start gap-3">
-                <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0 text-[10px]">°</span>
-                <span>
-                  <strong>Weather comfort estimate:</strong> {commute.apparentTemp.toFixed(1)}°C apparent temperature · {commute.weatherIsLive ? 'Open-Meteo reading' : 'illustrative estimate'}
-                </span>
-              </div>
-            )}
-
-            <div className="flex items-start gap-3">
-              <span className={`w-5 h-5 rounded-full ${negotiation.completed ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/10 text-white/40'} flex items-center justify-center shrink-0`}>
-                {negotiation.completed ? <Check size={13} /> : <AlertTriangle size={13} />}
-              </span>
-              <span>
-                <strong>Practice counterpart:</strong> {negotiation.completed ? negotiation.counterpartName : 'Not rehearsed yet'}
-                {negotiation.completed && <span className="block text-white/60 text-xs mt-1">{negotiation.responseSource === 'AI coach' ? 'AI coach response' : 'Illustrative demo response'}</span>}
-              </span>
+            <div className="mt-11 flex flex-wrap gap-3">
+              <button onClick={() => navigate('/moment')} className="group inline-flex min-h-12 items-center gap-4 rounded-full bg-[#d8bc7e] px-6 text-sm font-semibold text-[#0b2528] shadow-[0_12px_35px_rgba(216,188,126,.17)] transition hover:bg-[#ebd29b]"><Compass size={17} />Return to the live map<ArrowUpRight size={16} className="transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" /></button>
+              <button onClick={() => { resetRehearsal(); navigate('/'); }} className="inline-flex min-h-12 items-center gap-2.5 rounded-full border border-white/20 px-5 text-sm font-medium text-white/75 transition hover:border-white/40 hover:text-white"><RotateCcw size={15} />Start again</button>
             </div>
+          </section>
 
-            <div className="flex items-start gap-3">
-              <span className="w-5 h-5 rounded-full bg-gold/20 text-gold flex items-center justify-center shrink-0 font-bold text-xs">★</span>
-              <span>
-                <strong>Practice readiness score:</strong>{' '}
-                <span className="text-gold font-mono font-bold text-base">
-                  {negotiation.completed ? `${negotiation.confidenceScore}%` : 'Not scored'}
-                </span>
-                {negotiation.completed && <span className="block text-white/60 text-xs mt-1">A coaching estimate, not a prediction of real-world outcomes.</span>}
-              </span>
+          <section aria-label="Your rehearsal notes" className="overflow-hidden rounded-[28px] border border-white/15 bg-[#10282c]/90 shadow-[0_28px_90px_rgba(0,0,0,.28)]">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-6 sm:px-8">
+              <div><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-[#d8bd83]">Your field notes</p><h2 className="mt-2 text-2xl font-semibold tracking-[-.035em]">What you now know</h2></div>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d8bd83]/30 bg-[#d8bd83]/10 text-[#e3ca96]"><Check size={19} /></span>
             </div>
-
-            {negotiation.completed && negotiation.finalAgreementReached && (
-              <div className="text-emerald-300 text-xs font-semibold">The practice counterpart indicated agreement in this rehearsal.</div>
-            )}
-          </div>
-
-          {negotiation.missedQuestions.length > 0 && (
-            <div className="mt-6 pt-5 border-t border-white/10">
-              <span className="text-xs uppercase font-bold text-amber-400 tracking-wider flex items-center gap-1.5 mb-2">
-                <AlertTriangle size={13} /> Questions to verify on arrival
-              </span>
-              <ul className="space-y-1.5 text-xs text-white/80">
-                {negotiation.missedQuestions.map((question, index) => (
-                  <li key={index} className="flex items-start gap-2">
-                    <span className="text-gold">•</span>
-                    <span>{question}</span>
-                  </li>
-                ))}
-              </ul>
+            <div className="divide-y divide-white/10 px-6 sm:px-8">
+              <div className="grid gap-3 py-5 sm:grid-cols-[35px_1fr]"><span className="pt-0.5 text-[11px] font-semibold tracking-[.13em] text-[#d8bd83]">01</span><div><p className="text-[10px] font-semibold uppercase tracking-[.15em] text-white/45">Your place</p><p className="mt-1.5 text-[17px] font-semibold">{placeTitle}</p><p className="mt-1 text-xs leading-5 text-white/55">A real mapped district to inspect before you arrive.</p></div></div>
+              <div className="grid gap-3 py-5 sm:grid-cols-[35px_1fr]"><span className="pt-0.5 text-[11px] font-semibold tracking-[.13em] text-[#d8bd83]">02</span><div>
+                <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-white/45">Your route</p>
+                {routeHere ? <><p className="mt-1.5 text-[17px] font-semibold">Walk to {commute.destination}</p><p className="mt-1 text-xs text-white/55">From {commute.origin || placeTitle}</p><p className="mt-1 text-xs text-white/70">{commute.distanceKm.toFixed(1)} km <span className="px-1 text-white/30">·</span> about {commute.durationMins} min on foot</p><p className="mt-1.5 text-xs leading-5 text-white/45">{commute.isRealRouting ? 'Mapped pedestrian geometry from OpenStreetMap.' : 'Illustrative route preview; verify before travelling.'}</p>{commute.apparentTemp > 0 && <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#d8bd83]/10 px-2.5 py-1 text-[11px] text-[#e3cd9c]"><Sun size={12} />Feels like {commute.apparentTemp.toFixed(1)}°C at rehearsal time</p>}</>
+                  : <><p className="mt-1.5 text-[17px] font-semibold text-white/80">Choose a destination</p><p className="mt-1 text-xs leading-5 text-white/55">Open the map to trace a clinic or bus stop near {placeTitle}.</p></>}
+              </div></div>
+              <div className="grid gap-3 py-5 sm:grid-cols-[35px_1fr]"><span className="pt-0.5 text-[11px] font-semibold tracking-[.13em] text-[#d8bd83]">03</span><div><p className="text-[10px] font-semibold uppercase tracking-[.15em] text-white/45">Your conversation</p>
+                {negotiationHere ? <><p className="mt-1.5 text-[17px] font-semibold">Practice with {negotiation.counterpartName}</p><p className="mt-1 text-xs leading-5 text-white/55">Coaching estimate: {negotiation.confidenceScore}% readiness. Use the questions below in your real conversation.</p></>
+                  : <><p className="mt-1.5 text-[17px] font-semibold text-white/80">A question worth practising</p><p className="mt-1 text-xs leading-5 text-white/55">{isBusiness ? 'Ask an advisor about licensing and setup details.' : 'Ask a landlord about cooling, lease terms, and registration.'}</p></>}
+              </div></div>
             </div>
-          )}
-        </div>
-
-        <div className="mt-8 flex flex-wrap justify-center gap-4">
-          <button
-            onClick={() => {
-              resetRehearsal();
-              navigate('/');
-            }}
-            className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full text-xs font-bold transition-colors flex items-center gap-2 border border-white/20"
-          >
-            <RotateCcw size={14} /> Rehearse another scenario
-          </button>
-          <button
-            onClick={() => navigate('/moment')}
-            className="px-8 py-3 bg-gold hover:bg-amber-300 text-sand-900 rounded-full text-xs font-black transition-transform hover:scale-105 shadow-lg flex items-center gap-2"
-          >
-            Return to the map <ArrowRight size={14} />
-          </button>
-        </div>
-        <p className="text-[10px] text-white/40 mt-5">Routes, counterpart dialogue, and readiness scores may use illustrative MVP data. Verify real-world transport and lease details independently.</p>
-      </motion.div>
-    </div>
+            {negotiationHere && negotiation.missedQuestions.length > 0 && <div className="border-t border-white/10 bg-white/[.035] px-6 py-5 sm:px-8"><p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.15em] text-[#dfc58d]"><ShieldCheck size={14} />Questions to verify</p><ul className="mt-3 space-y-2 text-xs leading-5 text-white/65">{negotiation.missedQuestions.slice(0, 3).map((question) => <li key={question} className="flex items-start gap-2"><ArrowRight size={12} className="mt-1 shrink-0 text-[#d8bd83]" />{question}</li>)}</ul></div>}
+            <div className="flex items-start gap-2.5 border-t border-white/10 px-6 py-4 text-[11px] leading-5 text-white/45 sm:px-8"><Route size={14} className="mt-0.5 shrink-0 text-[#d8bd83]" />Map locations and walking routes depend on OpenStreetMap coverage. Confirm entrances, services, and schedules with the provider before travelling.</div>
+          </section>
+        </motion.div>
+        <footer className="flex items-center justify-between gap-4 border-t border-white/10 pt-5 text-[10px] text-white/35"><span>PARALLEL · Abu Dhabi arrival rehearsal</span><span>Explore first. Decide with confidence.</span></footer>
+      </div>
+    </main>
   );
 }

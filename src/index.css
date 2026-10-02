@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+.recap-page {
+  background-color: #071a1e;
+}
+
 @layer utilities {
   .glass-panel {
     @apply bg-white/40 backdrop-blur-md border border-white/50 shadow-xl shadow-sand-900/10 rounded-2xl;

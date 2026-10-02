@@ -9,6 +9,8 @@ export interface UserProfile {
 
 export interface CommuteSession {
   completed: boolean;
+  district: string;
+  origin: string;
   mode: 'foot' | 'ac_transit';
   destination: string;
   distanceKm: number;
@@ -22,6 +24,7 @@ export interface CommuteSession {
 
 export interface NegotiationOutcome {
   completed: boolean;
+  district: string;
   personaType: 'landlord' | 'adgm_officer';
   counterpartName: string;
   confidenceScore: number;
@@ -53,6 +56,8 @@ const defaultProfile: UserProfile = {
 
 const defaultCommute: CommuteSession = {
   completed: false,
+  district: '',
+  origin: '',
   mode: 'foot',
   destination: 'Not rehearsed yet',
   distanceKm: 0,
@@ -66,6 +71,7 @@ const defaultCommute: CommuteSession = {
 
 const defaultNegotiation: NegotiationOutcome = {
   completed: false,
+  district: '',
   personaType: 'landlord',
   counterpartName: 'Mr. Rashed (Property Owner)',
   confidenceScore: 0,

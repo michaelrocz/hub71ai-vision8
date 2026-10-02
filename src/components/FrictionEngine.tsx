@@ -64,6 +64,7 @@ export default function FrictionEngine({ onMapAction, onClose, initialMode = 'la
       // Record real dynamic outcome to RehearsalContext!
       setNegotiationOutcome({
         completed: true,
+        district: selectedNeighborhood,
         personaType: mode === 'investment' ? 'adgm_officer' : 'landlord',
         counterpartName: mode === 'investment' ? 'Tariq (illustrative advisor persona)' : 'Mr. Rashed (illustrative landlord persona)',
         confidenceScore: response.confidenceScore,

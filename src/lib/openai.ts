@@ -1,3 +1,5 @@
+import { ABU_DHABI_AREAS, findAbuDhabiArea } from './abuDhabiAreas';
+
 export interface RouteCoordinate {
   latitude: number;
   longitude: number;
@@ -52,6 +54,9 @@ export interface SimulationResponse {
   isLiveRouting?: boolean;
   investmentMetrics?: InvestmentExamples;
   responseSource?: 'AI coach' | 'demo scenario';
+  routeDestination?: string;
+  locationName?: string;
+  mapTour?: 'orbit';
 }
 
 export interface FrictionResponse {
@@ -151,7 +156,7 @@ export const SIMULATION_LOCATIONS = {
 export async function fetchOsrmWalkingRoute(
   start: { latitude: number; longitude: number },
   end: { latitude: number; longitude: number }
-): Promise<RouteDetails> {
+): Promise<RouteDetails | null> {
   const url = `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`;
   try {
     const res = await fetch(url);
@@ -176,80 +181,50 @@ export async function fetchOsrmWalkingRoute(
       };
     }
   } catch (err) {
-    console.warn("OSRM live fetch failed; reverting to illustrative cached geometry:", err);
+    console.warn('OSRM live walking route unavailable:', err);
   }
-
-  return {
-    distanceKm: 1.2,
-    durationMins: 15,
-    outdoorWalkMins: 15,
-    coordinates: [
-      { latitude: 24.4890, longitude: 54.6060 },
-      { latitude: 24.4883, longitude: 54.6065 },
-      { latitude: 24.4875, longitude: 54.6072 },
-      { latitude: 24.4868, longitude: 54.6078 },
-      { latitude: 24.4863687, longitude: 54.6082376 }
-    ],
-    source: 'Cached Fallback Geometry (Yas Island Pedestrian Way)',
-    isLive: false,
-    routeType: 'foot'
-  };
+  return null;
 }
 
-/**
- * Fetch Air-Conditioned Transit Reroute:
- * Leg 1: Short 400m walk to Yas Mall Bus Stop (5 mins outdoor)
- * Leg 2: Air-Conditioned Bus 102 transit straight to Medeor Clinic (6 mins AC transit)
- * Total outdoor exposure reduced from 15 mins down to 5 mins!
- */
-export async function fetchAcTransitRoute(): Promise<RouteDetails> {
-  const busStopCoord = { latitude: 24.4852524, longitude: 54.6073360 };
-  const clinicCoord = { latitude: 24.4863687, longitude: 54.6082376 };
-  const homeCoord = SIMULATION_LOCATIONS.yasResidential;
+function distanceBetweenKm(first: { latitude: number; longitude: number }, second: { latitude: number; longitude: number }) {
+  const latRadians = ((first.latitude + second.latitude) / 2) * Math.PI / 180;
+  const north = (first.latitude - second.latitude) * 111.2;
+  const east = (first.longitude - second.longitude) * 111.2 * Math.cos(latRadians);
+  return Math.hypot(north, east);
+}
 
-  let walkLeg: RouteCoordinate[] = [
-    { latitude: homeCoord.latitude, longitude: homeCoord.longitude },
-    { latitude: 24.4872, longitude: 54.6066 },
-    { latitude: busStopCoord.latitude, longitude: busStopCoord.longitude }
-  ];
-  let isLive = false;
+export async function findNearbyDestination(
+  origin: { latitude: number; longitude: number },
+  type: 'hospital' | 'bus',
+): Promise<PoiMarker | null> {
+  const localSeed = ABU_DHABI_POIS
+    .filter((poi) => poi.type === type && distanceBetweenKm(origin, poi) < 3)
+    .sort((a, b) => distanceBetweenKm(origin, a) - distanceBetweenKm(origin, b))[0];
+  if (localSeed) return { ...localSeed, name: localSeed.name.replace(/ \(OpenStreetMap\)$/, '') };
 
+  const closestArea = [...ABU_DHABI_AREAS].sort((a, b) => distanceBetweenKm(origin, a) - distanceBetweenKm(origin, b))[0];
+  const districtHint = closestArea && distanceBetweenKm(origin, closestArea) < 6 ? `${closestArea.name} ` : '';
+  const params = new URLSearchParams({
+    q: `${districtHint}${type === 'hospital' ? 'clinic' : 'bus stop'}`,
+    lat: String(origin.latitude), lon: String(origin.longitude), limit: '30', lang: 'en',
+    bbox: '54.12,24.22,54.82,24.78',
+  });
   try {
-    const res = await fetch(`https://routing.openstreetmap.de/routed-foot/route/v1/foot/${homeCoord.longitude},${homeCoord.latitude};${busStopCoord.longitude},${busStopCoord.latitude}?overview=full&geometries=geojson`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.routes?.[0]?.geometry?.coordinates) {
-        walkLeg = data.routes[0].geometry.coordinates.map((pt: [number, number]) => ({
-          latitude: pt[1],
-          longitude: pt[0]
-        }));
-        isLive = true;
-      }
-    }
-  } catch (e) {
-    console.warn("Transit pedestrian connection fetch fallback:", e);
+    const response = await fetch(`https://photon.komoot.io/api/?${params}`);
+    if (!response.ok) return null;
+    const data = await response.json() as { features?: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> };
+    const candidates = (data.features || []).map((feature) => ({
+      latitude: feature.geometry.coordinates[1], longitude: feature.geometry.coordinates[0],
+      type, name: feature.properties.name || (type === 'hospital' ? 'Mapped clinic' : 'Mapped bus stop'),
+      source: 'OpenStreetMap place search via Photon', isReal: true,
+      osmValue: feature.properties.osm_value || '',
+    })).filter((poi) => distanceBetweenKm(origin, poi) < 4
+      && (type === 'hospital' ? /clinic|hospital|doctors|healthcare/i.test(poi.osmValue) : /bus_stop|platform|station/i.test(poi.osmValue)))
+      .sort((a, b) => distanceBetweenKm(origin, a) - distanceBetweenKm(origin, b));
+    return candidates[0] || null;
+  } catch {
+    return null;
   }
-
-  // Bus 102 route connection across Yas street network to clinic
-  const transitLeg: RouteCoordinate[] = [
-    { latitude: busStopCoord.latitude, longitude: busStopCoord.longitude },
-    { latitude: 24.4858, longitude: 54.6077 },
-    { latitude: 24.4861, longitude: 54.6080 },
-    { latitude: clinicCoord.latitude, longitude: clinicCoord.longitude }
-  ];
-
-  return {
-    distanceKm: 1.4,
-    durationMins: 11,
-    outdoorWalkMins: 5,
-    coordinates: [...walkLeg, ...transitLeg],
-    source: isLive
-      ? 'Illustrative Bus 102 scenario; first walk leg uses live OSRM geometry'
-      : 'Illustrative Bus 102 scenario with cached walking geometry',
-    isLive: false,
-    walkLegIsLive: isLive,
-    routeType: 'ac_transit'
-  };
 }
 
 /**
@@ -301,47 +276,54 @@ export async function getSimulationResponse(
   sessionContext?: Record<string, unknown>
 ): Promise<SimulationResponse> {
   const lastMessage = (chatHistory.at(-1)?.text || '').toLowerCase();
-  
-  const isRoutingQuery = lastMessage.includes('hospital') || lastMessage.includes('clinic') || lastMessage.includes('walk') || lastMessage.includes('direction') || lastMessage.includes('transit') || preferTransit;
+  const currentArea = findAbuDhabiArea(String(sessionContext?.neighborhood || '')) || ABU_DHABI_AREAS[0];
+  const requestedArea = lastMessage.includes('masdar') ? findAbuDhabiArea('Masdar City')
+    : lastMessage.includes('adgm') || lastMessage.includes('maryah') ? findAbuDhabiArea('Al Maryah Island')
+    : lastMessage.includes('saadiyat') ? findAbuDhabiArea('Saadiyat Island')
+    : currentArea;
+  const area = requestedArea || currentArea;
+  const wantsClinic = /clinic|hospital|doctor/.test(lastMessage);
+  const wantsBus = !wantsClinic && /bus stop|nearest bus|find (a )?bus|take me to (a |the )?bus/.test(lastMessage);
+  const wantsExploration = /step outside|first morning walk|explore|show me|take me|visit/.test(lastMessage);
+  const wantsCommute = /commute|route|direction|walking|transit/.test(lastMessage);
+  const isRoutingQuery = wantsClinic || wantsBus;
   const isBusinessQuery = lastMessage.includes('invest') || lastMessage.includes('tax') || lastMessage.includes('adgm') || lastMessage.includes('business') || lastMessage.includes('company') || lastMessage.includes('freezone') || mode === 'business';
+  const destination = isRoutingQuery ? await findNearbyDestination(area, wantsClinic ? 'hospital' : 'bus') : null;
+  const routeData = destination ? await fetchOsrmWalkingRoute(area, destination) : null;
+  const localPois = ABU_DHABI_POIS.filter((poi) => distanceBetweenKm(area, poi) < 4);
+  if (destination && !localPois.some((poi) => poi.name === destination.name)) localPois.push(destination);
+  const routeKind = wantsClinic ? 'clinic' : 'bus stop';
+  const defaultFallback: SimulationResponse = {
+    voiceReply: isRoutingQuery
+      ? routeData && destination
+        ? `Here is the mapped walk from ${area.name} to ${destination.name}: ${routeData.distanceKm.toFixed(1)} kilometres, about ${routeData.durationMins} minutes. The gold pin marks your start, the blue marker follows the route, and the destination is labelled on the map.`
+        : destination
+          ? `I found ${destination.name} near ${area.name}, but live walking directions are unavailable. The map stays here until a route can be verified.`
+          : `I could not verify a nearby mapped ${routeKind} around ${area.name}. Search a specific place to explore it without guessing a route.`
+      : wantsCommute
+        ? `You are exploring ${area.name}. Choose a clinic or bus stop on the map to see a real pedestrian route. Bus service and travel time need separate verification${preferTransit ? ', especially in this heat' : ''}.`
+        : wantsExploration
+          ? `Let's look around ${area.name} in 3D. The camera will orbit the real district; choose a place or destination to make a route.`
+          : isBusinessQuery
+            ? `You are viewing ${area.name}. I can help you rehearse setup, licensing, ownership, and advisor questions to verify with current official sources.`
+            : `You are viewing ${area.name}. Search an address or choose a nearby destination to rehearse your arrival.`,
+    mapAction: routeData
+      ? { ...routeData.coordinates[0], zoom: Math.max(area.zoom, 16) }
+      : { latitude: area.latitude, longitude: area.longitude, zoom: Math.max(area.zoom, 15) },
+    mapTour: !isRoutingQuery && (wantsExploration || wantsCommute) ? 'orbit' : undefined,
+    locationName: area.name,
+    poiMarkers: localPois,
+    routeDestination: destination?.name,
+    route: routeData?.coordinates,
+    routeDetails: routeData || undefined,
+    distanceKm: routeData?.distanceKm,
+    durationMins: routeData?.durationMins,
+    routingSource: routeData?.source,
+    isLiveRouting: routeData?.isLive,
+    investmentMetrics: isBusinessQuery && area.id === 'al-maryah-island' ? INVESTMENT_EXAMPLES.adgm : undefined,
+  };
 
-  // Calculate route with live vs cached labeling
-  let routeData: RouteDetails | undefined;
-  if (isRoutingQuery) {
-    if (preferTransit || lastMessage.includes('bus') || lastMessage.includes('transit') || lastMessage.includes('air-condition') || lastMessage.includes('ac')) {
-      routeData = await fetchAcTransitRoute();
-    } else {
-      routeData = await fetchOsrmWalkingRoute(
-        { latitude: SIMULATION_LOCATIONS.yasResidential.latitude, longitude: SIMULATION_LOCATIONS.yasResidential.longitude },
-        { latitude: ABU_DHABI_POIS[0].latitude, longitude: ABU_DHABI_POIS[0].longitude }
-      );
-    }
-  }
-
-  const defaultFallback: SimulationResponse = isBusinessQuery
-    ? {
-        voiceReply: "The map is centered on ADGM on Al Maryah Island. I can help you rehearse which company setup, tax, ownership, and licensing questions to verify with current official sources.",
-        mapAction: { latitude: 24.5005, longitude: 54.3888, zoom: 15 },
-        poiMarkers: ABU_DHABI_POIS,
-        investmentMetrics: INVESTMENT_EXAMPLES.adgm
-      }
-    : {
-        voiceReply: isRoutingQuery
-          ? (routeData?.routeType === 'ac_transit'
-              ? `Here is an illustrative air-conditioned transit scenario to Medeor Clinic: about ${routeData.durationMins} minutes total, with ${routeData.outdoorWalkMins} minutes outdoors. Check the bus service and stops before traveling.`
-              : `The nearby clinic is Medeor Medical Clinic, about ${routeData?.distanceKm || 1.2} km or ${routeData?.durationMins || 15} minutes away by ${routeData?.isLive ? 'live walking geometry' : 'illustrative walking estimate'}.`)
-          : "Navigating to Yas Island, Building 15.",
-        mapAction: isRoutingQuery && routeData
-          ? { ...routeData.coordinates[routeData.coordinates.length - 1], zoom: 16 }
-          : { latitude: 24.4890, longitude: 54.6060, zoom: 15 },
-        poiMarkers: ABU_DHABI_POIS,
-        route: routeData?.coordinates,
-        routeDetails: routeData,
-        distanceKm: routeData?.distanceKm,
-        durationMins: routeData?.durationMins,
-        routingSource: routeData?.source,
-        isLiveRouting: routeData?.isLive
-      };
+  if (isRoutingQuery || wantsExploration || wantsCommute || area.name !== currentArea.name) return { ...defaultFallback, responseSource: 'demo scenario' };
 
   try {
     const generated = await requestAi<Partial<SimulationResponse>>({
@@ -359,7 +341,7 @@ export async function getSimulationResponse(
           source: routeData.source,
           isLive: routeData.isLive,
         } : null,
-        investmentExamples: isBusinessQuery ? INVESTMENT_EXAMPLES.adgm : null,
+        investmentExamples: isBusinessQuery && area.id === 'al-maryah-island' ? INVESTMENT_EXAMPLES.adgm : null,
       },
     });
     if (!generated.voiceReply) return { ...defaultFallback, responseSource: 'demo scenario' };
