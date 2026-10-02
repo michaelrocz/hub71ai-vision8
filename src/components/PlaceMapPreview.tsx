@@ -14,9 +14,11 @@ interface PlaceMapPreviewProps {
   area: AbuDhabiArea;
   className?: string;
   interactive?: boolean;
+  showAttribution?: boolean;
+  showCaption?: boolean;
 }
 
-export default function PlaceMapPreview({ area, className = '', interactive = false }: PlaceMapPreviewProps) {
+export default function PlaceMapPreview({ area, className = '', interactive = false, showAttribution = true, showCaption = true }: PlaceMapPreviewProps) {
   return (
     <div className={`place-map-preview ${className}`} aria-label={`Satellite view of ${area.name}`}>
       <MapContainer
@@ -24,7 +26,7 @@ export default function PlaceMapPreview({ area, className = '', interactive = fa
         center={[area.latitude, area.longitude]}
         zoom={area.zoom}
         zoomControl={false}
-        attributionControl
+        attributionControl={showAttribution}
         scrollWheelZoom={interactive}
         dragging={interactive}
         doubleClickZoom={interactive}
@@ -38,7 +40,7 @@ export default function PlaceMapPreview({ area, className = '', interactive = fa
         />
         <Marker position={[area.latitude, area.longitude]} icon={makeAreaPin(area.name)} interactive={false} />
       </MapContainer>
-      <span className="place-map-preview__caption">Satellite imagery · {area.name}</span>
+      {showCaption && <span className="place-map-preview__caption">Satellite imagery · {area.name}</span>}
     </div>
   );
 }
