@@ -1,4 +1,6 @@
 import { ABU_DHABI_AREAS, findAbuDhabiArea } from './abuDhabiAreas';
+import { findRehearsalPlace, placesForArea, REHEARSAL_PLACES } from './places';
+import routeSnapshots from '../data/demoRoutes.json';
 
 export interface RouteCoordinate {
   latitude: number;
@@ -21,6 +23,7 @@ export interface RouteDetails {
   coordinates: RouteCoordinate[];
   source: string;
   isLive: boolean;
+  isMapped?: boolean;
   walkLegIsLive?: boolean;
   routeType: 'foot' | 'ac_transit';
 }
@@ -57,6 +60,8 @@ export interface SimulationResponse {
   routeDestination?: string;
   locationName?: string;
   mapTour?: 'orbit';
+  placeId?: string;
+  placeLabel?: string;
 }
 
 export interface FrictionResponse {
@@ -153,13 +158,28 @@ export const SIMULATION_LOCATIONS = {
  * Fetch direct walking route from Project OSRM (OpenStreetMap data)
  * Returns live vs cached fallback flag to ensure absolute provenance honesty
  */
+const routeCache = new Map<string, RouteDetails>();
 export async function fetchOsrmWalkingRoute(
   start: { latitude: number; longitude: number },
   end: { latitude: number; longitude: number }
 ): Promise<RouteDetails | null> {
+  const key = `${start.latitude.toFixed(5)},${start.longitude.toFixed(5)}:${end.latitude.toFixed(5)},${end.longitude.toFixed(5)}`;
+  if (routeCache.has(key)) return routeCache.get(key)!;
+  const snapshot = routeSnapshots.find((item) => distanceBetweenKm(start, { latitude: item.start[1], longitude: item.start[0] }) < 0.065
+    && distanceBetweenKm(end, { latitude: item.end[1], longitude: item.end[0] }) < 0.04);
+  if (snapshot) {
+    const cached: RouteDetails = {
+      distanceKm: Number((snapshot.distance / 1000).toFixed(2)), durationMins: Math.max(1, Math.round(snapshot.distance / 80)),
+      outdoorWalkMins: Math.max(1, Math.round(snapshot.distance / 80)),
+      coordinates: snapshot.coordinates.map((point) => ({ latitude: point[1], longitude: point[0] })),
+      source: 'Saved OSRM pedestrian geometry · checked 2 Oct 2026', isLive: false, isMapped: true, routeType: 'foot',
+    };
+    routeCache.set(key, cached);
+    return cached;
+  }
   const url = `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(7000) });
     if (!res.ok) throw new Error(`OSRM HTTP status ${res.status}`);
     const data = await res.json();
     if (data.routes && data.routes[0]) {
@@ -170,15 +190,18 @@ export async function fetchOsrmWalkingRoute(
         latitude: pt[1],
         longitude: pt[0]
       }));
-      return {
+      const result: RouteDetails = {
         distanceKm,
         durationMins,
         outdoorWalkMins: durationMins,
         coordinates,
         source: 'Live OSRM foot geometry (OpenStreetMap routing service)',
         isLive: true,
+        isMapped: true,
         routeType: 'foot'
       };
+      routeCache.set(key, result);
+      return result;
     }
   } catch (err) {
     console.warn('OSRM live walking route unavailable:', err);
@@ -198,6 +221,7 @@ export async function findNearbyDestination(
   type: 'hospital' | 'bus',
 ): Promise<PoiMarker | null> {
   const localSeed = ABU_DHABI_POIS
+    .concat(REHEARSAL_PLACES.filter((place) => place.category === type).map((place) => ({ ...place, type, source: place.source, isReal: true })))
     .filter((poi) => poi.type === type && distanceBetweenKm(origin, poi) < 3)
     .sort((a, b) => distanceBetweenKm(origin, a) - distanceBetweenKm(origin, b))[0];
   if (localSeed) return { ...localSeed, name: localSeed.name.replace(/ \(OpenStreetMap\)$/, '') };
@@ -210,7 +234,7 @@ export async function findNearbyDestination(
     bbox: '54.12,24.22,54.82,24.78',
   });
   try {
-    const response = await fetch(`https://photon.komoot.io/api/?${params}`);
+    const response = await fetch(`https://photon.komoot.io/api/?${params}`, { signal: AbortSignal.timeout(6500) });
     if (!response.ok) return null;
     const data = await response.json() as { features?: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> };
     const candidates = (data.features || []).map((feature) => ({
@@ -260,6 +284,7 @@ async function requestAi<T>(body: Record<string, unknown>): Promise<T> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(16000),
   });
   if (!response.ok) throw new Error(`AI request failed (${response.status})`);
   return response.json() as Promise<T>;
@@ -288,10 +313,13 @@ export async function getSimulationResponse(
   const wantsCommute = /commute|route|direction|walking|transit/.test(lastMessage);
   const isRoutingQuery = wantsClinic || wantsBus;
   const isBusinessQuery = lastMessage.includes('invest') || lastMessage.includes('tax') || lastMessage.includes('adgm') || lastMessage.includes('business') || lastMessage.includes('company') || lastMessage.includes('freezone') || mode === 'business';
+  const businessPlace = !isRoutingQuery && isBusinessQuery
+    ? findRehearsalPlace(lastMessage.includes('hub71') ? 'hub71' : area.id === 'masdar-city' ? 'masdar' : 'adgm') : undefined;
   const destination = isRoutingQuery ? await findNearbyDestination(area, wantsClinic ? 'hospital' : 'bus') : null;
   const routeData = destination ? await fetchOsrmWalkingRoute(area, destination) : null;
   const localPois = ABU_DHABI_POIS.filter((poi) => distanceBetweenKm(area, poi) < 4);
   if (destination && !localPois.some((poi) => poi.name === destination.name)) localPois.push(destination);
+  const routePlace = destination ? REHEARSAL_PLACES.find((place) => distanceBetweenKm(place, destination) < 0.025 && place.category === destination.type) : undefined;
   const routeKind = wantsClinic ? 'clinic' : 'bus stop';
   const defaultFallback: SimulationResponse = {
     voiceReply: isRoutingQuery
@@ -305,14 +333,15 @@ export async function getSimulationResponse(
         : wantsExploration
           ? `Let's look around ${area.name} in 3D. The camera will orbit the real district; choose a place or destination to make a route.`
           : isBusinessQuery
-            ? `You are viewing ${area.name}. I can help you rehearse setup, licensing, ownership, and advisor questions to verify with current official sources.`
+            ? `Here is your ${businessPlace?.shortName || area.name} arrival brief. Review the setup steps, required decisions and questions for your advisor, then rehearse the approach to the actual mapped building.`
             : `You are viewing ${area.name}. Search an address or choose a nearby destination to rehearse your arrival.`,
     mapAction: routeData
       ? { ...routeData.coordinates[0], zoom: Math.max(area.zoom, 16) }
-      : { latitude: area.latitude, longitude: area.longitude, zoom: Math.max(area.zoom, 15) },
-    mapTour: !isRoutingQuery && (wantsExploration || wantsCommute) ? 'orbit' : undefined,
+      : businessPlace ? { latitude: businessPlace.latitude, longitude: businessPlace.longitude, zoom: 17.2 }
+        : { latitude: area.latitude, longitude: area.longitude, zoom: Math.max(area.zoom, 15) },
+    mapTour: !isRoutingQuery && !businessPlace && (wantsExploration || wantsCommute) ? 'orbit' : undefined,
     locationName: area.name,
-    poiMarkers: localPois,
+    poiMarkers: [...localPois, ...placesForArea(area.id).map((place) => ({ ...place, type: place.category, isReal: true }))],
     routeDestination: destination?.name,
     route: routeData?.coordinates,
     routeDetails: routeData || undefined,
@@ -320,16 +349,17 @@ export async function getSimulationResponse(
     durationMins: routeData?.durationMins,
     routingSource: routeData?.source,
     isLiveRouting: routeData?.isLive,
-    investmentMetrics: isBusinessQuery && area.id === 'al-maryah-island' ? INVESTMENT_EXAMPLES.adgm : undefined,
+    placeId: businessPlace?.id || routePlace?.id,
+    placeLabel: businessPlace?.name,
   };
 
-  if (isRoutingQuery || wantsExploration || wantsCommute || area.name !== currentArea.name) return { ...defaultFallback, responseSource: 'demo scenario' };
+  if (isRoutingQuery || businessPlace && /setup|set up|licen|visit|take me|show me|explore|arrival|hub71|adgm|masdar/.test(lastMessage) || wantsExploration || wantsCommute || area.name !== currentArea.name) return { ...defaultFallback, responseSource: 'demo scenario' };
 
   try {
     const generated = await requestAi<Partial<SimulationResponse>>({
       kind: 'simulation',
       mode,
-      messages: chatHistory,
+      messages: chatHistory.slice(-10),
       weather,
       context: {
         ...sessionContext,
@@ -403,7 +433,7 @@ export async function getCoachResponse(
     const generated = await requestAi<Partial<FrictionResponse>>({
       kind: 'coach',
       mode,
-      messages,
+      messages: messages.slice(-10),
       context: sessionContext,
     });
     if (!generated.counterpartReply) return { ...fallback, responseSource: 'demo scenario' };

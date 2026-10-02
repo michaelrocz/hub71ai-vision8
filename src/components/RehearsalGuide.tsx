@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowRight, AudioLines, Check, Mic, Moon, Navigation, Send, Sun, Sunrise, Users, Briefcase, MapPin } from 'lucide-react';
 import { ABU_DHABI_AREAS, findAbuDhabiArea } from '../lib/abuDhabiAreas';
 
@@ -21,6 +21,8 @@ interface RehearsalGuideProps {
   onCoach: () => void;
   onTimeChange: (time: 'morning' | 'noon' | 'night') => void;
   onLocationChange: (areaId: string) => void;
+  onPlaceDetails: () => void;
+  hasPlaceDetails: boolean;
 }
 
 export default function RehearsalGuide({
@@ -40,12 +42,15 @@ export default function RehearsalGuide({
   onCoach,
   onTimeChange,
   onLocationChange,
+  onPlaceDetails,
+  hasPlaceDetails,
 }: RehearsalGuideProps) {
   const [scene, setScene] = useState(0);
   const [draft, setDraft] = useState('');
+  useEffect(() => { setScene(0); }, [track, neighborhood]);
   const scenes = track === 'business'
     ? [
-        { time: '08:30', label: 'Your first workday', title: `${name ? `Good morning, ${name}.` : 'Your first morning in Abu Dhabi.'} Let’s find your way into the city.`, body: `You’re in ${neighborhood}. ${priority ? `You told us ${priority.toLowerCase()} matters to you.` : 'What would make this move feel right for you?'}`, choices: [{ label: 'Explore my route to ADGM', prompt: 'Take me to ADGM on Al Maryah Island and show me the arrival experience.' }, { label: 'Compare a different work district', prompt: 'Compare getting to Masdar City with working in ADGM.' }] },
+        { time: '08:30', label: 'Your first workday', title: `${name ? `Good morning, ${name}.` : 'Your first morning in Abu Dhabi.'} Let’s prepare your first business visit.`, body: `You’re in ${neighborhood}. Explore the right building, understand the setup steps, and rehearse the questions before your meeting.`, choices: [{ label: neighborhood === 'Masdar City' ? 'Open my Masdar arrival brief' : 'Open my ADGM arrival brief', prompt: `Take me to ${neighborhood === 'Masdar City' ? 'Masdar One Stop Shop' : 'ADGM Al Khatem Tower'} and show the setup and arrival brief.` }, { label: neighborhood === 'Masdar City' ? 'Explore ADGM instead' : 'Explore Hub71', prompt: neighborhood === 'Masdar City' ? 'Visit ADGM and show the setup brief.' : 'Visit Hub71 and show the startup arrival brief.' }] },
         { time: '10:15', label: 'Choose your base', title: 'Where would your business come to life?', body: 'Move between districts and rehearse the trade-offs behind your first office decision.', choices: [{ label: 'Visit ADGM', prompt: 'Take me to ADGM on Al Maryah Island. What should I notice as a first-time founder?' }, { label: 'Visit Masdar City', prompt: 'Show me Masdar City and what a clean-tech founder should explore there.' }] },
         { time: '12:00', label: 'A real conversation', title: 'Practice the question before the meeting.', body: 'Step into a conversation with an advisor. Ask about setup, licensing, or the details you want to verify.', choices: [{ label: 'Practice with an advisor', prompt: '' }, { label: 'Ask about setup requirements', prompt: 'What company setup questions should I verify for my business activity in Abu Dhabi?' }] },
       ]
@@ -63,7 +68,7 @@ export default function RehearsalGuide({
   };
 
   return (
-    <section aria-label="Guided Abu Dhabi rehearsal" className="absolute left-3 top-20 z-30 max-h-[calc(100vh-6rem)] w-[calc(100vw-1.5rem)] max-w-[390px] overflow-y-auto rounded-[26px] border border-white/15 bg-[#071821]/90 text-white shadow-[0_24px_90px_rgba(0,0,0,.48)] backdrop-blur-2xl lg:left-7">
+    <section aria-label="Guided Abu Dhabi rehearsal" className="moment-guide absolute left-3 top-20 z-30 max-h-[calc(100vh-6rem)] w-[calc(100vw-1.5rem)] max-w-[360px] overflow-y-auto rounded-[26px] border border-white/15 bg-[#071821]/95 text-white shadow-[0_24px_70px_rgba(0,0,0,.4)] lg:left-7">
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#d4bd8b]/15 text-[#e5cc98]">{track === 'business' ? <Briefcase size={15} /> : <Users size={15} />}</div>
@@ -100,13 +105,15 @@ export default function RehearsalGuide({
 
         {loading && <div className="mt-3 rounded-xl border border-white/10 bg-white/[.05] px-3.5 py-3 text-xs text-white/70">Your guide is preparing the next part of the rehearsal…</div>}
         {!loading && recentResponse && <div className="mt-3 rounded-xl border border-[#d3bd8c]/20 bg-[#d3bd8c]/[.08] px-3.5 py-3.5">
-          <p className="line-clamp-3 text-sm leading-[1.6] text-white/90">{recentResponse}</p>
+          <p className="text-sm leading-[1.6] text-white/90">{recentResponse}</p>
           <div className="mt-2 flex items-center justify-between gap-2">
             {responseSource && <p className="text-[9px] font-medium uppercase tracking-[.12em] text-[#e0c78f]/65">{responseSource}</p>}
             {routeSummary && <p className="text-[9px] font-semibold text-emerald-100/80">{routeSummary}</p>}
           </div>
           {businessInsight && <p className="mt-2 border-t border-white/10 pt-2 text-[10px] leading-4 text-sky-50/75">{businessInsight} <span className="text-sky-50/45">· illustrative; verify current rules</span></p>}
         </div>}
+
+        {hasPlaceDetails && <button onClick={onPlaceDetails} className="mt-3 flex w-full items-center justify-between rounded-xl border border-[#a3d3cb]/25 bg-[#a3d3cb]/10 px-3.5 py-3 text-sm font-medium text-[#c7e6df]">{track === 'business' ? 'Setup steps & place details' : 'View destination details'}<ArrowRight size={15} /></button>}
 
         <form onSubmit={(event) => { event.preventDefault(); if (draft.trim()) { onAsk(draft.trim()); setDraft(''); } }} className={`mt-3 flex min-h-12 items-center gap-2 rounded-xl border bg-black/20 p-1.5 focus-within:border-[#d3bd8c]/40 ${listening ? 'border-rose-300/40' : 'border-white/10'}`}>
           <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={listening ? 'Listening — speak naturally…' : 'Ask your guide anything…'} className="min-w-0 flex-1 bg-transparent px-2 text-sm text-white outline-none placeholder:text-white/40" />

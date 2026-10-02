@@ -6,6 +6,18 @@
   background-color: #071a1e;
 }
 
+.moment-map-toggle { display: none; }
+@media (max-width: 1100px) {
+  .moment-guide { width: 310px; left: 16px; }
+  .moment-map-panel { width: 310px; right: 16px; }
+}
+@media (max-width: 850px) {
+  .moment-guide { top: 80px; left: 12px; max-height: 34vh; width: calc(100vw - 24px); max-width: none; }
+  .moment-map-panel { top: auto; bottom: 16px; right: 12px; width: calc(100vw - 24px); max-height: 42vh; }
+  .moment-map-toggle { display: block; top: auto; bottom: 16px; right: 16px; }
+  .moment-map-panel + div { display: none; }
+}
+
 @layer utilities {
   .glass-panel {
     @apply bg-white/40 backdrop-blur-md border border-white/50 shadow-xl shadow-sand-900/10 rounded-2xl;

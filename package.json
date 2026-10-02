@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^2.25.0",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.1",
     "@types/leaflet": "^1.9.22",
@@ -20,7 +19,6 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^1.49.0",
     "maplibre-gl": "^6.11.2",
-    "openai": "^7.27.0",
     "postcss": "^8.5.28",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

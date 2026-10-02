@@ -6,8 +6,9 @@ import {
   ABU_DHABI_POIS
 } from './lib/openai';
 import { useRehearsal } from './context/RehearsalContext';
-import FrictionEngine from './components/FrictionEngine';
 import RehearsalGuide from './components/RehearsalGuide';
+import PlaceBrief from './components/PlaceBrief';
+import { findRehearsalPlace, type RehearsalPlace } from './lib/places';
 import ParallelLogo from './components/ParallelLogo';
 import { ABU_DHABI_AREAS, findAbuDhabiArea } from './lib/abuDhabiAreas';
 import { 
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react';
 
 const MapLibreExperience = lazy(() => import('./components/MapLibreExperience'));
+const FrictionEngine = lazy(() => import('./components/FrictionEngine'));
 
 const speakWithSiriVoice = (text: string) => {
   window.speechSynthesis.cancel();
@@ -56,6 +58,9 @@ export default function App() {
 
   const [trackMode, setTrackMode] = useState<'residential' | 'business'>(profile.track || 'residential');
   const [showCoach, setShowCoach] = useState(false);
+  const [briefPlace, setBriefPlace] = useState<RehearsalPlace | null>(null);
+  const [routeRequest, setRouteRequest] = useState<{ id: number; place: RehearsalPlace; origin?: RehearsalPlace } | null>(null);
+  const [locateRequest, setLocateRequest] = useState<{ id: number; place: RehearsalPlace } | null>(null);
   const [showNavigationMenu, setShowNavigationMenu] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -92,6 +97,7 @@ export default function App() {
   const transcriptRef = useRef('');
   const aiRequestRef = useRef<(text?: string) => void>(() => undefined);
   const conversationRef = useRef<Array<{ role: 'user' | 'assistant'; text: string }>>([]);
+  const requestVersion = useRef(0);
 
   useEffect(() => {
     let mounted = true;
@@ -161,6 +167,7 @@ export default function App() {
       const text = transcriptRef.current.trim();
       if (text) aiRequestRef.current(text);
     };
+    recognition.onerror = () => setIsListening(false);
 
     recognitionRef.current = recognition;
     setSpeechSupported(true);
@@ -196,6 +203,7 @@ export default function App() {
   const handleAiRequest = async (overrideText?: string, forceTransit: boolean = false) => {
     const textToProcess = overrideText || transcript;
     if (!textToProcess.trim()) return;
+    const version = ++requestVersion.current;
 
     const mentionsRoute = /clinic|hospital|walk|direction|bus|transit|commute|nearby/i.test(textToProcess);
     const asksForDirectWalk = /direct walk|walking route|on foot/i.test(textToProcess);
@@ -215,7 +223,10 @@ export default function App() {
         { apparentTemp: liveWeather.apparentTemp, isLive: liveWeather.isLive },
         { neighborhood: selectedNeighborhood, priorities: profile.worries }
       );
+      if (version !== requestVersion.current) return;
       setAiState(response);
+      const place = findRehearsalPlace(response.placeId);
+      if (place?.category === 'business') setBriefPlace(place);
       if (response.locationName && response.locationName !== selectedNeighborhood) {
         setSelectedNeighborhood(response.locationName);
         const destinationArea = findAbuDhabiArea(response.locationName);
@@ -242,14 +253,14 @@ export default function App() {
           heatWarning: liveWeather.apparentTemp >= 32,
           apparentTemp: liveWeather.apparentTemp,
           weatherIsLive: liveWeather.isLive,
-          isRealRouting: response.routeDetails.isLive,
+          isRealRouting: Boolean(response.routeDetails.isMapped || response.routeDetails.isLive),
           routingSource: response.routeDetails.source
         });
       }
     } catch (err: any) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   };
 
@@ -258,6 +269,12 @@ export default function App() {
   const focusArea = (areaId: string) => {
     const area = ABU_DHABI_AREAS.find((candidate) => candidate.id === areaId);
     if (!area) return;
+    requestVersion.current += 1;
+    setLoading(false);
+    setBriefPlace(null);
+    setRouteRequest(null);
+    conversationRef.current = [];
+    window.speechSynthesis.cancel();
     setTrackMode(area.track);
     setProfile({ track: area.track });
     setSelectedNeighborhood(area.name);
@@ -304,6 +321,10 @@ export default function App() {
           nearbyPlaces={routeNearbyPlaces}
           temperature={liveWeather.temp}
           apparentTemperature={liveWeather.apparentTemp}
+          routeRequest={routeRequest}
+          locateRequest={locateRequest}
+          onPlaceDetails={(id) => setBriefPlace(findRehearsalPlace(id) || null)}
+          timeOfDay={timeOfDay}
           onWalkRecorded={(walk) => setCommuteSession({
             completed: true,
             district: activeArea.name,
@@ -338,6 +359,8 @@ export default function App() {
         onCoach={() => setShowCoach(true)}
         onTimeChange={setTimeOfDay}
         onLocationChange={focusArea}
+        onPlaceDetails={() => setBriefPlace(findRehearsalPlace(aiState?.placeId || (activeArea.id === 'masdar-city' ? 'masdar' : 'adgm')) || null)}
+        hasPlaceDetails={Boolean(aiState?.placeId) || trackMode === 'business'}
       />
 
       {/* Compact journey header: one primary action, with secondary actions grouped in the menu. */}
@@ -393,12 +416,17 @@ export default function App() {
       </div>}
 
       {/* Friction & Negotiation Rehearsal Modal */}
-      {showCoach && (
+      {briefPlace && <PlaceBrief key={briefPlace.id} place={briefPlace} onClose={() => setBriefPlace(null)} onLocate={() => { setLocateRequest({ id: Date.now(), place: briefPlace }); setBriefPlace(null); }} onRoute={() => {
+        const origin = briefPlace.category === 'business' ? findRehearsalPlace(briefPlace.areaId === 'masdar-city' ? 'irena' : 'galleria') : undefined;
+        setRouteRequest({ id: Date.now(), place: briefPlace, origin });
+        setBriefPlace(null);
+      }} onCoach={() => { setBriefPlace(null); setShowCoach(true); }} />}
+      {showCoach && <Suspense fallback={<div className="absolute inset-0 z-50 grid place-items-center bg-[#071821]/85 text-white">Preparing your conversation…</div>}>
         <FrictionEngine 
           initialMode={trackMode === 'business' ? 'investment' : 'landlord'} 
           onClose={() => setShowCoach(false)}
         />
-      )}
+      </Suspense>}
 
     </div>
   );

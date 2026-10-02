@@ -13,9 +13,10 @@ import {
   type MapMouseEvent,
 } from 'maplibre-gl';
 import mapLibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
-import { Activity, ArrowDown, ArrowUpRight, LocateFixed, MapPin, Mic, Navigation, Rotate3D, Search } from 'lucide-react';
+import { Activity, ArrowUpRight, LocateFixed, MapPin, Mic, Navigation, Rotate3D, Search, Play, Info } from 'lucide-react';
 import type { AbuDhabiArea } from '../lib/abuDhabiAreas';
-import { findNearbyDestination, type PoiMarker, type RouteDetails, type SimulationResponse } from '../lib/openai';
+import { fetchOsrmWalkingRoute, findNearbyDestination, type PoiMarker, type RouteDetails, type SimulationResponse } from '../lib/openai';
+import { placesForArea, type RehearsalPlace } from '../lib/places';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 setWorkerUrl(mapLibreWorkerUrl);
@@ -137,12 +138,16 @@ interface MapLibreExperienceProps {
   state: SimulationResponse | null;
   route?: RouteDetails;
   nearbyPlaces?: PoiMarker[];
+  routeRequest?: { id: number; place: RehearsalPlace; origin?: RehearsalPlace } | null;
+  locateRequest?: { id: number; place: RehearsalPlace } | null;
+  onPlaceDetails: (id: string) => void;
+  timeOfDay?: 'morning' | 'noon' | 'night';
   temperature?: string;
   apparentTemperature?: number;
   onWalkRecorded?: (walk: { origin: string; destination: string; distanceKm: number; durationMins: number; source: string }) => void;
 }
 
-export default function MapLibreExperience({ area, state, route, nearbyPlaces = [], temperature, apparentTemperature, onWalkRecorded }: MapLibreExperienceProps) {
+export default function MapLibreExperience({ area, state, route, temperature, apparentTemperature, onWalkRecorded, routeRequest, locateRequest, onPlaceDetails, timeOfDay }: MapLibreExperienceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const entranceMarkerRef = useRef<Marker | null>(null);
@@ -163,7 +168,11 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
   const [listening, setListening] = useState(false);
-  const [walkLoading, setWalkLoading] = useState<'clinic' | 'bus' | null>(null);
+  const [walkLoading, setWalkLoading] = useState<string | null>(null);
+  const [routePlanning, setRoutePlanning] = useState(false);
+  const [routeSource, setRouteSource] = useState('');
+  const [destinationPlaceId, setDestinationPlaceId] = useState('');
+  const [panelOpen, setPanelOpen] = useState(true);
   const [walkStatus, setWalkStatus] = useState('');
   const [walkMetrics, setWalkMetrics] = useState<{ distance: number; mins: number; name: string } | null>(null);
   const [walkProgress, setWalkProgress] = useState(0);
@@ -182,6 +191,9 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
     roadPointRef.current = null;
     routeCoordinatesRef.current = [];
     setWalkMetrics(null);
+    setRoutePlanning(false);
+    setWalkLoading(null);
+    setDestinationPlaceId('');
     setWalkDestination('');
     setWalkStatus('Place selected · choose a destination to trace a real route');
     shouldHighlightBuildingRef.current = true;
@@ -194,7 +206,7 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
     if (map) {
       (map.getSource('parallel-route') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: [] });
       if (map.getLayer('parallel-3d-buildings')) map.setPaintProperty('parallel-3d-buildings', 'fill-extrusion-opacity', 0.55);
-      map.flyTo({ center: lngLat, zoom: 17.3, pitch: 66, duration: 1800, essential: true });
+      map.flyTo({ center: lngLat, zoom: 17.3, pitch: 66, duration: 1100, essential: true });
       map.once('moveend', () => setSelectionRevision((value) => value + 1));
     }
   }, []);
@@ -210,7 +222,7 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
         q: `${query}, Abu Dhabi`, limit: '5', lang: 'en', lat: '24.49', lon: '54.60',
         bbox: '54.12,24.22,54.82,24.78',
       });
-      const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`);
+      const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, { signal: AbortSignal.timeout(7000) });
       if (!response.ok) throw new Error('Address search is temporarily unavailable.');
       const payload = await response.json() as { features?: SearchFeature[] };
       const seenResults = new Set<string>();
@@ -253,7 +265,9 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
       dragRotate: true,
       pitchWithRotate: true,
       touchPitch: true,
-      cooperativeGestures: true,
+      cooperativeGestures: false,
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
+      fadeDuration: 150,
     });
     mapRef.current = map;
     map.addControl(new NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), 'bottom-right');
@@ -330,7 +344,7 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
 
     const handleError = (event: any) => {
       console.warn('MapLibre map error:', event.error);
-      if (event.error?.message) setMapError(event.error.message);
+      if (!map.isStyleLoaded()) setMapError('Map connection interrupted. Check your connection and reload.');
     };
     map.on('load', handleLoad);
     map.on('error', handleError);
@@ -390,11 +404,12 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
       setWalkDestination('');
       setWalkProgress(0);
     }
-    shouldHighlightBuildingRef.current = Boolean(state?.investmentMetrics);
-    map.flyTo({ center: [action.longitude, action.latitude], zoom: Math.max(action.zoom, 15), pitch: 60, duration: 1500, essential: true });
+    shouldHighlightBuildingRef.current = Boolean(state?.placeLabel);
+    if (!state?.routeDetails) map.flyTo({ center: [action.longitude, action.latitude], zoom: Math.max(action.zoom, 15), pitch: state?.placeLabel ? 66 : 60, duration: 1100, essential: true });
     const point: [number, number] = [action.longitude, action.latitude];
     selectedPointRef.current = point;
-    setSelectedLabel(state?.routeDetails ? `${area.name} · route start` : area.name);
+    setSelectedLabel(state?.routeDetails ? `${area.name} · district starting point` : state?.placeLabel || `${area.name} · district starting point`);
+    map.once('moveend', () => setSelectionRevision((value) => value + 1));
     setSelectionRevision((value) => value + 1);
     if (state?.mapTour === 'orbit') {
       setWalkStatus(`Exploring ${area.name} · 3D district orbit`);
@@ -416,9 +431,12 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
       const destination = state?.routeDestination || 'Mapped destination';
       destinationMarkerRef.current = addDestinationMarker(map, coordinates.at(-1)!, destination);
       setWalkDestination(destination);
+      setWalkMetrics({ distance: route!.distanceKm, mins: route!.durationMins, name: destination });
+      setRouteSource(route!.source);
+      setDestinationPlaceId(state?.placeId || '');
       setWalkStatus(`Route ready · ${area.name} to ${destination}`);
       const bounds = coordinates.reduce((current, coordinate) => current.extend(coordinate), new LngLatBounds(coordinates[0], coordinates[0]));
-      map.fitBounds(bounds, { padding: window.innerWidth < 768 ? 55 : { top: 140, bottom: 170, left: 440, right: 420 }, maxZoom: 16.5, duration: 1400, pitch: 60 });
+      map.fitBounds(bounds, { padding: window.innerWidth < 768 ? 55 : { top: 140, bottom: 170, left: 410, right: 405 }, maxZoom: 16.5, duration: 1400, pitch: 60 });
     } else {
       setWalkDestination('');
     }
@@ -502,89 +520,119 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
     };
   }, [runSearch]);
 
-  const walkRoute = async (destinationType: 'clinic' | 'bus') => {
+  const planRoute = async (target: PoiMarker | RehearsalPlace, explicitOrigin?: RehearsalPlace) => {
     const run = ++walkRunRef.current;
+    mapRef.current?.stop();
+    walkerMarkerRef.current?.remove();
+    setWalkLoading(null);
+    setRoutePlanning(true);
     setSearchResults([]);
-    setSearchText('');
-    setSearchError('');
-    setWalkLoading(destinationType);
-    setWalkStatus(`Finding a nearby mapped ${destinationType === 'clinic' ? 'clinic' : 'bus stop'}…`);
     setWalkMetrics(null);
     setWalkProgress(0);
+    setWalkStatus(`Planning a pedestrian route to ${target.name}…`);
+    const origin = explicitOrigin ? [explicitOrigin.longitude, explicitOrigin.latitude] as [number, number] : roadPointRef.current || selectedPointRef.current;
     try {
-      const [fromLng, fromLat] = roadPointRef.current || selectedPointRef.current;
-      const target = await findNearbyDestination({ latitude: fromLat, longitude: fromLng }, destinationType === 'clinic' ? 'hospital' : 'bus');
+      const result = await fetchOsrmWalkingRoute({ latitude: origin[1], longitude: origin[0] }, target);
       if (run !== walkRunRef.current) return;
-      if (!target) throw new Error(`No verified nearby ${destinationType === 'clinic' ? 'clinic' : 'bus stop'} was found. Search a named place instead.`);
-      setWalkDestination(target.name);
-      setWalkStatus(`Tracing streets to ${target.name}…`);
-      const url = `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${fromLng},${fromLat};${target.longitude},${target.latitude}?overview=full&geometries=geojson`;
-      const response = await fetch(url);
-      if (run !== walkRunRef.current) return;
-      if (!response.ok) throw new Error('Live walking route is unavailable at the moment.');
-      const payload = await response.json() as { routes?: Array<{ geometry?: { coordinates?: [number, number][] }; distance?: number; duration?: number }> };
-      if (run !== walkRunRef.current) return;
-      const result = payload.routes?.[0];
-      const coordinates = result?.geometry?.coordinates;
-      if (!coordinates || coordinates.length < 2) throw new Error('No mapped pedestrian route was found from this point.');
+      if (!result) throw new Error('A pedestrian route could not be verified. Try another starting point or retry.');
       const map = mapRef.current;
       if (!map) return;
+      const coordinates = result.coordinates.map((point) => [point.longitude, point.latitude] as [number, number]);
       routeCoordinatesRef.current = coordinates;
+      selectedPointRef.current = coordinates[0];
+      roadPointRef.current = coordinates[0];
+      shouldHighlightBuildingRef.current = false;
+      if (explicitOrigin) setSelectedLabel(explicitOrigin.name);
+      setSelectionRevision((value) => value + 1);
       updateRoute(map, coordinates);
       destinationMarkerRef.current?.remove();
-      destinationMarkerRef.current = addDestinationMarker(map, coordinates.at(-1)!, target.name);
-      const distance = (result.distance || 0) / 1000;
-      const mins = Math.max(1, Math.round((result.duration || (distance * 1000 / 80)) / 60));
-      setWalkMetrics({ distance, mins, name: target.name });
-      setWalkStatus(`Start: ${selectedLabel} · Destination: ${target.name}`);
-      const bounds = coordinates.reduce((bounds, coordinate) => bounds.extend(coordinate), new LngLatBounds(coordinates[0], coordinates[0]));
-      await new Promise<void>((resolve) => {
-        map.once('moveend', () => resolve());
-        map.fitBounds(bounds, { padding: window.innerWidth < 768 ? 56 : { top: 110, bottom: 130, left: 440, right: 390 }, maxZoom: 15.5, duration: 1300, pitch: 60 });
-      });
-      if (run !== walkRunRef.current) return;
-      const sampled = sampleRoute(coordinates, 20);
-      const walker = document.createElement('div');
-      walker.className = 'parallel-walker-dot';
-      walker.title = 'Your position on the walkthrough';
-      walkerMarkerRef.current?.remove();
-      walkerMarkerRef.current = new Marker({ element: walker, anchor: 'center' }).setLngLat(sampled[0]).addTo(map);
-      map.setPaintProperty('parallel-3d-buildings', 'fill-extrusion-opacity', 0.34);
-      setWalkStatus('Walking the mapped streets · 3D route preview');
+      destinationMarkerRef.current = addDestinationMarker(map, [target.longitude, target.latitude], target.name);
+      setWalkDestination(target.name);
+      setWalkMetrics({ distance: result.distanceKm, mins: result.durationMins, name: target.name });
+      setRouteSource(result.source);
+      const knownPlace = 'id' in target ? target : placesForArea(area.id).find((place) => Math.abs(place.latitude - target.latitude) < 0.0002 && Math.abs(place.longitude - target.longitude) < 0.0002);
+      setDestinationPlaceId(knownPlace?.id || '');
+      setWalkStatus('Route ready · press Walk the route to follow the blue position marker');
+      const bounds = coordinates.reduce((value, coordinate) => value.extend(coordinate), new LngLatBounds(coordinates[0], coordinates[0]));
+      map.fitBounds(bounds, { padding: window.innerWidth < 1000 ? { top: 100, bottom: 320, left: 45, right: 45 } : { top: 130, bottom: 130, left: 410, right: 400 }, maxZoom: 17.3, duration: 1000, pitch: 60 });
+    } catch (error) {
+      if (run === walkRunRef.current) setWalkStatus(error instanceof Error ? error.message : 'Could not plan this route.');
+    } finally {
+      if (run === walkRunRef.current) setRoutePlanning(false);
+    }
+  };
+
+  const planNearby = async (type: 'clinic' | 'bus') => {
+    const run = ++walkRunRef.current;
+    setRoutePlanning(true);
+    setWalkStatus(`Finding a named ${type === 'clinic' ? 'clinic' : 'bus stop'} near your starting point…`);
+    const [longitude, latitude] = roadPointRef.current || selectedPointRef.current;
+    const target = await findNearbyDestination({ longitude, latitude }, type === 'clinic' ? 'hospital' : 'bus');
+    if (run !== walkRunRef.current) return;
+    if (!target) { setRoutePlanning(false); setWalkStatus('No suitable nearby place was found in the mapped data. Search a specific name instead.'); return; }
+    await planRoute(target);
+  };
+
+  const startWalk = async () => {
+    const map = mapRef.current;
+    const coordinates = routeCoordinatesRef.current;
+    if (!map || coordinates.length < 2 || !walkMetrics) return;
+    const run = ++walkRunRef.current;
+    setWalkLoading('walk');
+    setWalkProgress(0);
+    setWalkStatus('Following the mapped streets · blue marker is your position');
+    const sampled = sampleRoute(coordinates, Math.min(48, Math.max(20, Math.round(walkMetrics.distance * 25))));
+    const walker = document.createElement('div');
+    walker.className = 'parallel-walker-dot';
+    walker.title = 'Your position on the walkthrough';
+    walkerMarkerRef.current?.remove();
+    walkerMarkerRef.current = new Marker({ element: walker, anchor: 'center' }).setLngLat(sampled[0]).addTo(map);
+    map.setPaintProperty('parallel-3d-buildings', 'fill-extrusion-opacity', 0.4);
+    try {
       for (let index = 0; index < sampled.length - 1; index += 1) {
         if (run !== walkRunRef.current) return;
-        const current = sampled[index];
-        const next = sampled[index + 1];
+        const current = sampled[index], next = sampled[index + 1];
         const east = MercatorCoordinate.fromLngLat(next).x - MercatorCoordinate.fromLngLat(current).x;
         const north = MercatorCoordinate.fromLngLat(current).y - MercatorCoordinate.fromLngLat(next).y;
-        const angle = (Math.atan2(east, north) * 180) / Math.PI;
+        const angle = Math.atan2(east, north) * 180 / Math.PI;
         const started = performance.now();
         const moveWalker = (now: number) => {
           if (run !== walkRunRef.current || !walkerMarkerRef.current) return;
-          const t = Math.min(1, (now - started) / 550);
+          const t = Math.min(1, (now - started) / 600);
           walkerMarkerRef.current.setLngLat([current[0] + (next[0] - current[0]) * t, current[1] + (next[1] - current[1]) * t]);
           if (t < 1) requestAnimationFrame(moveWalker);
         };
         requestAnimationFrame(moveWalker);
         await new Promise<void>((resolve) => {
           map.once('moveend', () => resolve());
-          map.easeTo({ center: next, offset: [0, 70], zoom: 17.8, pitch: 70, bearing: angle, duration: 550, easing: (value) => value, essential: true });
+          map.easeTo({ center: next, offset: [0, 65], zoom: 18.1, pitch: 70, bearing: angle, duration: 600, easing: (value) => value, essential: true });
         });
         if (run !== walkRunRef.current) return;
         walkerMarkerRef.current?.setLngLat(next);
         setWalkProgress(Math.round(((index + 1) / (sampled.length - 1)) * 100));
       }
-      onWalkRecorded?.({ origin: selectedLabel, destination: target.name, distanceKm: distance, durationMins: mins, source: 'Live OpenStreetMap pedestrian route' });
-      setWalkStatus('You’ve arrived · drag to inspect the real district in 3D');
-    } catch (error) {
-      if (run === walkRunRef.current) setWalkStatus(error instanceof Error ? error.message : 'Could not create a walking route.');
+      onWalkRecorded?.({ origin: selectedLabel, destination: walkMetrics.name, distanceKm: walkMetrics.distance, durationMins: walkMetrics.mins, source: routeSource });
+      setWalkStatus('You’ve arrived · explore the building or open its place details');
     } finally {
-      if (run === walkRunRef.current) {
-        if (mapRef.current?.getLayer('parallel-3d-buildings')) mapRef.current.setPaintProperty('parallel-3d-buildings', 'fill-extrusion-opacity', 0.55);
-        setWalkLoading(null);
-      }
+      if (run === walkRunRef.current) { setWalkLoading(null); map.setPaintProperty('parallel-3d-buildings', 'fill-extrusion-opacity', 0.55); }
     }
   };
+
+  useEffect(() => {
+    if (routeRequest && mapReady) void planRoute(routeRequest.place, routeRequest.origin);
+  // Request IDs represent explicit user actions, rather than render-triggered routes.
+  }, [routeRequest?.id, mapReady]);
+
+  useEffect(() => {
+    if (locateRequest && mapReady) selectLocation([locateRequest.place.longitude, locateRequest.place.latitude], locateRequest.place.name);
+  }, [locateRequest?.id, mapReady, selectLocation]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    map.setLight({ anchor: 'viewport', color: timeOfDay === 'night' ? '#c7e3ff' : '#fff0cb', intensity: timeOfDay === 'night' ? 0.35 : 0.78, position: [1.15, timeOfDay === 'morning' ? 120 : 205, 48] });
+    map.setPaintProperty('abu-dhabi-satellite-base', 'raster-brightness-max', timeOfDay === 'night' ? 0.58 : 1);
+  }, [timeOfDay, mapReady]);
 
   const cancelWalk = () => {
     walkRunRef.current += 1;
@@ -608,13 +656,14 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
     if (walkLoading) cancelWalk();
     map.easeTo({ center: selectedPointRef.current, zoom: Math.max(map.getZoom(), 17.3), pitch: 70, bearing: map.getBearing() + 110, duration: 5200, essential: true });
   };
-  const routeDestination = state?.routeDestination || walkDestination || 'Selected destination';
+  const suggestedPlaces = placesForArea(area.id).filter((place) => place.id !== 'galleria' && place.id !== 'irena');
 
   return (
     <>
       <div className="absolute inset-0 z-0 bg-[#102326]"><div ref={containerRef} className="h-full w-full" aria-label="Interactive 3D Abu Dhabi map" /></div>
       <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-r from-[#061317]/25 via-transparent to-[#061317]/10" />
-      <aside className="pointer-events-auto absolute right-5 top-[138px] z-20 flex max-h-[calc(100vh-158px)] w-[min(390px,calc(100vw-40px))] flex-col overflow-y-auto rounded-[24px] border border-white/20 bg-[#0a1d22]/95 text-white shadow-[0_28px_90px_rgba(0,0,0,.48)] backdrop-blur-2xl sm:right-7" aria-label="Explore Abu Dhabi map">
+      <button onClick={() => setPanelOpen((open) => !open)} className="moment-map-toggle absolute right-5 top-[132px] z-30 rounded-full border border-white/20 bg-[#0a1d22] px-4 py-2 text-xs text-white">{panelOpen ? 'Hide map tools' : 'Search & routes'}</button>
+      <aside className={`${panelOpen ? '' : 'hidden'} moment-map-panel pointer-events-auto absolute right-5 top-[138px] z-20 flex max-h-[calc(100vh-158px)] w-[min(350px,calc(100vw-40px))] flex-col overflow-y-auto rounded-[24px] border border-white/20 bg-[#0a1d22]/95 text-white shadow-[0_28px_90px_rgba(0,0,0,.48)] sm:right-7`} aria-label="Explore Abu Dhabi map">
         <header className="border-b border-white/10 px-5 pb-4 pt-5">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -659,47 +708,24 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
         </section>
 
         <section className="border-t border-white/10 px-5 py-4">
-          <div className="flex items-center justify-between gap-3">
-            <div><p className="text-[9px] font-semibold uppercase tracking-[.14em] text-[#d7bf86]">Walk the route</p><p className="mt-1 text-[11px] text-white/55">Trace a real path to a nearby place.</p></div>
-            {walkLoading && <button type="button" onClick={cancelWalk} className="text-[10px] font-semibold text-[#d9c487] hover:text-white">Stop tour</button>}
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button disabled={!!walkLoading} onClick={() => void walkRoute('clinic')} className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[.06] px-3 py-2.5 text-left text-[11px] font-medium transition hover:border-[#d4bc82]/50 hover:bg-white/[.1] disabled:opacity-50"><span>Find clinic</span><ArrowDown size={13} className="text-[#d9c487]" /></button>
-            <button disabled={!!walkLoading} onClick={() => void walkRoute('bus')} className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[.06] px-3 py-2.5 text-left text-[11px] font-medium transition hover:border-[#d4bc82]/50 hover:bg-white/[.1] disabled:opacity-50"><span>Find bus stop</span><ArrowDown size={13} className="text-[#d9c487]" /></button>
-          </div>
-          {walkDestination && <div className="mt-3 rounded-xl border border-white/10 bg-white/[.045] px-3 py-2.5 text-[10px] leading-5 text-white/70"><div><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#e7c980]" />Start · {selectedLabel}</div><div className="truncate"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#79ceb4]" />Arrive · {walkDestination}</div>{walkLoading && walkProgress > 0 && <div><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#1ea7bd]" />Moving now · {walkProgress}% complete</div>}</div>}
-          {walkMetrics && <div className="mt-3 flex items-center justify-between rounded-xl border border-[#d8c184]/20 bg-[#d8c184]/[.08] px-3 py-2.5">
-            <div><p className="text-[11px] font-semibold text-white">{walkMetrics.name}</p><p className="mt-1 text-[10px] text-white/55">{walkMetrics.distance.toFixed(1)} km · about {walkMetrics.mins} min on foot</p></div>
-            <Navigation size={15} className="text-[#dec98f]" />
+          <div className="flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-[.12em] text-[#d7bf86]">{area.track === 'business' ? 'Your first business visit' : 'Places for your first day'}</p>{walkLoading && <button onClick={cancelWalk} className="text-xs text-[#ddc493]">Stop walk</button>}</div>
+          <p className="mt-2 text-xs leading-5 text-white/55">Choose a named destination. Preview the path, then walk it in 3D.</p>
+          <div className="mt-3 grid gap-2">{suggestedPlaces.map((place) => <div key={place.id} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.04] p-2.5"><MapPin size={15} className="shrink-0 text-[#a3d3cb]" /><button onClick={() => onPlaceDetails(place.id)} className="flex-1 text-left text-sm font-medium text-white/85">{place.shortName}</button><button aria-label={`Plan route to ${place.shortName}`} disabled={routePlanning || !!walkLoading} onClick={() => void planRoute(place)} className="rounded-lg bg-[#ddc493]/15 p-2 text-[#ddc493] disabled:opacity-40"><Navigation size={15} /></button></div>)}</div>
+          <div className="mt-3 flex gap-2"><button disabled={routePlanning || !!walkLoading} onClick={() => void planNearby('clinic')} className="rounded-full border border-white/15 px-3 py-2 text-xs text-white/60 disabled:opacity-40">Nearest clinic</button><button disabled={routePlanning || !!walkLoading} onClick={() => void planNearby('bus')} className="rounded-full border border-white/15 px-3 py-2 text-xs text-white/60 disabled:opacity-40">Nearest bus stop</button></div>
+          {walkMetrics && <div className="mt-4 rounded-2xl border border-[#ddc493]/25 bg-[#ddc493]/[.07] p-4">
+            <p className="text-[11px] text-white/55">From · {selectedLabel}</p><h3 className="mt-1 text-sm font-semibold">To · {walkDestination}</h3>
+            <div className="my-3 flex items-baseline gap-3"><span className="text-2xl font-semibold text-[#ddc493]">{walkMetrics.distance.toFixed(2)} <span className="text-xs">km</span></span><span className="text-sm text-white/70">about {walkMetrics.mins} min on foot</span></div>
+            <p className="text-[11px] leading-5 text-white/45">{routeSource}</p>
+            <button disabled={!!walkLoading || routePlanning} onClick={() => void startWalk()} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#ddc493] py-3 text-sm font-semibold text-[#10292e] disabled:opacity-50"><Play size={15} />{walkLoading ? `Walking · ${walkProgress}%` : 'Walk the route'}</button>
+            {destinationPlaceId && <button onClick={() => onPlaceDetails(destinationPlaceId)} className="mt-3 flex items-center gap-2 text-xs text-[#a3d3cb]"><Info size={14} />Destination details & next steps</button>}
           </div>}
-          {walkStatus && <p role="status" className="mt-2 text-[10px] leading-4 text-white/55">{walkStatus}</p>}
-          {walkLoading && walkProgress > 0 && <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10" aria-label={`Walkthrough ${walkProgress}% complete`}><div className="h-full rounded-full bg-[#d9bf83] transition-[width] duration-500" style={{ width: `${walkProgress}%` }} /></div>}
+          {walkStatus && <p role="status" className="mt-3 text-xs leading-5 text-white/65">{routePlanning ? 'Planning… ' : ''}{walkStatus}</p>}
+          {walkLoading && <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-[#ddc493] transition-[width] duration-500" style={{ width: `${walkProgress}%` }} /></div>}
+          {apparentTemperature !== undefined && apparentTemperature >= 32 && <p className="mt-3 rounded-xl bg-amber-100/[.05] p-3 text-xs leading-5 text-amber-100/70">Feels like {apparentTemperature.toFixed(1)}°C. Consider a cooler time or arrange a ride; this preview is a pedestrian route.</p>}
         </section>
-
-        {route && <section className="border-t border-white/10 px-5 py-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[9px] font-semibold uppercase tracking-[.14em] text-[#d7bf86]">Your arrival brief</p>
-            <span className="rounded-full border border-white/10 bg-white/[.05] px-2 py-1 text-[8px] font-semibold uppercase tracking-[.1em] text-white/55">{route.isLive ? 'Live route' : 'Route preview'}</span>
-          </div>
-          <h3 className="mt-1.5 text-[14px] font-semibold text-white">{routeDestination}</h3>
-          <p className="mt-1 text-[10px] text-white/50">{area.name} · {route.routeType === 'ac_transit' ? 'Public transport journey' : 'Walking journey'}</p>
-          <div className="mt-3 grid grid-cols-3 divide-x divide-white/10 rounded-xl border border-white/10 bg-white/[.035] py-2.5">
-            <div className="px-2.5"><p className="text-[8px] font-semibold uppercase tracking-[.1em] text-white/40">Journey</p><p className="mt-1 text-[15px] font-semibold tabular-nums">{route.durationMins}<span className="ml-1 text-[9px] font-medium">min</span></p></div>
-            <div className="px-2.5"><p className="text-[8px] font-semibold uppercase tracking-[.1em] text-white/40">Distance</p><p className="mt-1 text-[15px] font-semibold tabular-nums">{route.distanceKm.toFixed(1)}<span className="ml-1 text-[9px] font-medium">km</span></p></div>
-            <div className="px-2.5"><p className="text-[8px] font-semibold uppercase tracking-[.1em] text-white/40">Outdoors</p><p className="mt-1 text-[15px] font-semibold tabular-nums">{route.outdoorWalkMins}<span className="ml-1 text-[9px] font-medium">min</span></p></div>
-          </div>
-          <p className="mt-3 rounded-xl bg-[#d9bf83]/[.08] px-3 py-2.5 text-[10px] leading-[1.55] text-white/65">
-            {apparentTemperature !== undefined && apparentTemperature >= 32
-              ? `Feels like ${apparentTemperature.toFixed(1)}°C now. This journey includes ${route.outdoorWalkMins} minutes outside; plan for shade and air-conditioned breaks.`
-              : `This journey includes ${route.outdoorWalkMins} minutes outside. Rehearse the route before you choose how to travel.`}
-          </p>
-          {nearbyPlaces.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{nearbyPlaces.slice(0, 3).map((place) => <span key={`${place.name}-${place.latitude}`} className="rounded-full border border-white/10 bg-white/[.045] px-2.5 py-1 text-[9px] text-white/55">{place.name.replace(/ \(.*\)$/, '')}</span>)}</div>}
-          <p className="mt-3 border-t border-white/[.08] pt-2 text-[9px] leading-4 text-white/35">{route.source}. Confirm opening hours and service availability before travelling.</p>
-        </section>}
 
         <footer className="mt-auto border-t border-white/10 px-5 py-3">
           <div className="flex items-center justify-between gap-2 text-[9px] text-white/40"><span>{area.name} · 3D buildings</span><span>{temperature ? `${temperature}°C` : ''}{apparentTemperature !== undefined ? ` · feels ${apparentTemperature.toFixed(1)}°` : ''}</span></div>
-          {nearbyPlaces.length > 0 && <p className="mt-2 truncate text-[9px] text-white/35">Nearby: {nearbyPlaces.map((place) => place.name.replace(/ \(.*\)$/, '')).slice(0, 2).join(' · ')}</p>}
         </footer>
       </aside>
       {!mapReady && <div className="pointer-events-none absolute bottom-5 left-1/2 z-10 -translate-x-1/2 rounded-full border border-white/15 bg-[#0a1d22]/85 px-4 py-2 text-[11px] text-white/70 shadow-lg">Loading Abu Dhabi 3D map…</div>}
@@ -719,7 +745,7 @@ export default function MapLibreExperience({ area, state, route, nearbyPlaces = 
         .parallel-destination-pin { position: relative; width: 18px; height: 18px; }
         .parallel-destination-pin__dot { position: absolute; inset: 0; border: 3px solid #fff; border-radius: 50%; background: #79ceb4; box-shadow: 0 0 0 6px rgba(121,206,180,.24),0 5px 18px rgba(0,0,0,.5); }
         .parallel-destination-pin__label { position: absolute; right: 27px; bottom: -2px; overflow: hidden; max-width: 180px; width: max-content; padding: 5px 9px; border: 1px solid rgba(255,255,255,.32); border-radius: 999px; background: rgba(8,29,34,.94); color: #fff; font-size: 10px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,.28); }
-        .maplibregl-ctrl-bottom-right { right: 416px; bottom: 18px; }
+        .maplibregl-ctrl-bottom-right { right: 396px; bottom: 18px; }
         @media (max-width: 767px) { .maplibregl-ctrl-bottom-right { right: 16px; bottom: 16px; } }
       `}</style>
     </>
