@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-white/40 backdrop-blur-md border border-white/50 shadow-xl shadow-sand-900/10 rounded-2xl;
+  }
+  
+  .glass-panel-dark {
+    @apply bg-sand-900/40 backdrop-blur-md border border-white/20 shadow-xl shadow-black/20 rounded-2xl text-white;
+  }
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  font-family: Inter, "Segoe UI Variable", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-synthesis: none;
+  overflow: hidden;
+}
+
+/* Customizing Leaflet controls to look more premium */
+.leaflet-control-zoom {
+  border: none !important;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1) !important;
+  border-radius: 0.75rem !important;
+  overflow: hidden;
+}
+.leaflet-control-zoom a {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(8px);
+  color: #64442a !important;
+}
+.leaflet-control-zoom a:hover {
+  background-color: rgba(255, 255, 255, 1) !important;
+}
+
+/* Fix visible 1px tile seams on high-DPI and fractional scaling displays */
+.leaflet-tile {
+  outline: 1px solid transparent;
+  -webkit-backface-visibility: hidden;
+  transform: translate3d(0, 0, 0);
+}
+
+.leaflet-tile-container img {
+  box-shadow: 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.leaflet-container {
+  background: #0f172a !important; /* Dark slate background matching satellite tiles */
+}
+
+/* Ensure Leaflet attribution is legible and well styled */
+.leaflet-control-attribution {
+  background: rgba(15, 23, 42, 0.8) !important;
+  color: #cbd5e1 !important;
+  font-size: 10px !important;
+  padding: 3px 8px !important;
+  border-radius: 6px !important;
+  backdrop-filter: blur(6px);
+  margin: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+.leaflet-control-attribution a {
+  color: #fbbf24 !important;
+  text-decoration: none !important;
+}
+.leaflet-control-attribution a:hover {
+  text-decoration: underline !important;
+}
+
+.place-map-preview {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: #172b30;
+}
+
+.place-map-preview .leaflet-container {
+  font-family: Inter, "Segoe UI Variable", "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+.place-map-pin {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+  width: max-content !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.place-map-pin__dot {
+  position: relative;
+  display: block;
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #d6bd86;
+  box-shadow: 0 0 0 5px rgb(214 189 134 / 25%), 0 3px 14px rgb(0 0 0 / 45%);
+}
+
+.place-map-pin__label {
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 999px;
+  background: rgb(8 24 31 / 84%);
+  padding: 5px 9px;
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+  backdrop-filter: blur(8px);
+}
+
+.place-map-preview__caption {
+  position: absolute;
+  z-index: 500;
+  bottom: 14px;
+  left: 14px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 999px;
+  background: rgb(8 24 31 / 78%);
+  padding: 6px 10px;
+  color: rgb(255 255 255 / 80%);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(8px);
+}
+

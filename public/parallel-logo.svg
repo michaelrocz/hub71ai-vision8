@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="470" height="104" viewBox="0 0 470 104" fill="none">
+  <defs>
+    <linearGradient id="gold" x1="7" y1="9" x2="83" y2="87" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F2DFB4"/>
+      <stop offset="1" stop-color="#C3A66D"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(8 4) scale(1.9)">
+    <path d="M9 41V20.5C9 12.49 15.49 6 23.5 6S38 12.49 38 20.5V41" stroke="url(#gold)" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M16 41V22C16 17.86 19.36 14.5 23.5 14.5S31 17.86 31 22V41" stroke="#F4F0E7" stroke-opacity=".84" stroke-width="1.7" stroke-linecap="round"/>
+    <circle cx="23.5" cy="25.5" r="2.5" fill="#E7CC96"/>
+    <path d="M17 36.5h4v-4.2h4.3v4.2h3.2v-6h4v10.5H17V36.5Z" fill="#6F9690" stroke="#D4C39E" stroke-width=".8" stroke-linejoin="round"/>
+    <path d="M6 43.5h32" stroke="#E7CC96" stroke-opacity=".8" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+  <text x="112" y="53" fill="#F7F4EB" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="37" font-weight="650" letter-spacing="5">PARALLEL<tspan fill="#D8BD82">.</tspan></text>
+  <text x="114" y="79" fill="#B8B9AF" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="10" font-weight="500" letter-spacing="2.3">ABU DHABI · BEFORE DAY ONE</text>
+</svg>
