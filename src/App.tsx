@@ -1,7 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
-import L from 'leaflet';
 import { 
   getSimulationResponse, 
   type SimulationResponse,
@@ -23,28 +21,8 @@ import {
   ArrowLeft,
   MoreHorizontal,
 } from 'lucide-react';
-import 'leaflet/dist/leaflet.css';
 
-const DistrictExperience = lazy(() => import('./components/DistrictExperience'));
-
-// --- Custom Premium Icons ---
-const createIcon = (color: string, iconHtml: string) => L.divIcon({
-  className: 'bg-transparent',
-  html: `<div class="w-10 h-10 rounded-full flex items-center justify-center shadow-2xl border-2 border-white text-white" style="background-color: ${color};">${iconHtml}</div>`,
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
-  popupAnchor: [0, -40]
-});
-
-const icons = {
-  home: createIcon('#D4AF37', '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>'),
-  hospital: createIcon('#ef4444', '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>'),
-  bus: createIcon('#3b82f6', '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6v6"></path><path d="M15 6v6"></path><path d="M2 12h19.6"></path><path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"></path><circle cx="7" cy="18" r="2"></circle><circle cx="17" cy="18" r="2"></circle></svg>'),
-  shop: createIcon('#10b981', '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>'),
-  business: createIcon('#8b5cf6', '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="7" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>'),
-  bank: createIcon('#f59e0b', '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" x2="21" y1="22" y2="22"></line><line x1="6" x2="6" y1="18" y2="11"></line><line x1="10" x2="10" y1="18" y2="11"></line><line x1="14" x2="14" y1="18" y2="11"></line><line x1="18" x2="18" y1="18" y2="11"></line><polygon points="12 2 20 7 4 7"></polygon></svg>'),
-  school: createIcon('#06b6d4', '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c3 3 9 3 12 0v-5"></path></svg>')
-};
+const MapLibreExperience = lazy(() => import('./components/MapLibreExperience'));
 
 const speakWithSiriVoice = (text: string) => {
   window.speechSynthesis.cancel();
@@ -70,59 +48,11 @@ const speakWithSiriVoice = (text: string) => {
   window.speechSynthesis.speak(utterance);
 };
 
-function MapUpdater({ state, isTransitRoute }: { state: SimulationResponse | null, isTransitRoute: boolean }) {
-  const map = useMap();
-  useEffect(() => {
-    if (state?.mapAction) {
-      map.flyTo([state.mapAction.latitude, state.mapAction.longitude], state.mapAction.zoom, { duration: 2.5 });
-    }
-  }, [state, map]);
-
-  return (
-    <>
-      {state?.route && (
-        <Polyline 
-          positions={state.route.map(r => [r.latitude, r.longitude])} 
-          color={isTransitRoute ? "#38bdf8" : "#D4AF37"} 
-          weight={6} 
-          dashArray={isTransitRoute ? "6, 10" : "10, 15"} 
-          className="animate-pulse"
-        />
-      )}
-      {state?.mapAction && (
-        <Marker
-          position={[state.mapAction.latitude, state.mapAction.longitude]}
-          icon={state.route ? icons.hospital : state.investmentMetrics ? icons.business : icons.home}
-        >
-          <Popup>
-            <div className="text-slate-900">
-              <p className="font-bold text-sm">Focus Coordinates</p>
-              <p className="text-[11px] text-amber-700 font-semibold">Active Rehearsal Target</p>
-            </div>
-          </Popup>
-        </Marker>
-      )}
-      {(state?.poiMarkers || ABU_DHABI_POIS).map((poi, i) => (
-        <Marker key={i} position={[poi.latitude, poi.longitude]} icon={icons[poi.type as keyof typeof icons] || icons.home}>
-          <Popup className="font-sans">
-            <div className="text-slate-900">
-              <p className="font-bold text-sm">{poi.name}</p>
-              {poi.source && (
-                <p className="text-[11px] text-slate-500 mt-0.5">Source: {poi.source}</p>
-              )}
-            </div>
-          </Popup>
-        </Marker>
-      ))}
-    </>
-  );
-}
-
 type TimeOfDay = 'morning' | 'noon' | 'night';
 
 export default function App() {
   const navigate = useNavigate();
-  const { profile, selectedNeighborhood, commute, setProfile, setSelectedNeighborhood, setCommuteSession } = useRehearsal();
+  const { profile, selectedNeighborhood, setProfile, setSelectedNeighborhood, setCommuteSession } = useRehearsal();
 
   const [trackMode, setTrackMode] = useState<'residential' | 'business'>(profile.track || 'residential');
   const [showCoach, setShowCoach] = useState(false);
@@ -141,7 +71,6 @@ export default function App() {
   });
   const [loading, setLoading] = useState(false);
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>('noon');
-  const [isTransitActive, setIsTransitActive] = useState(commute.completed && commute.mode === 'ac_transit');
   
   const [liveWeather, setLiveWeather] = useState<{
     temp: string;
@@ -291,7 +220,6 @@ export default function App() {
 
       // Record commute session to RehearsalContext
       if (response.routeDetails) {
-        setIsTransitActive(response.routeDetails.routeType === 'ac_transit');
         setCommuteSession({
           completed: true,
           mode: response.routeDetails.routeType,
@@ -320,7 +248,6 @@ export default function App() {
     setTrackMode(area.track);
     setProfile({ track: area.track });
     setSelectedNeighborhood(area.name);
-    setIsTransitActive(false);
     const nearbyPois = ABU_DHABI_POIS.filter((poi) =>
       Math.abs(poi.latitude - area.latitude) < 0.07 && Math.abs(poi.longitude - area.longitude) < 0.07,
     );
@@ -347,35 +274,23 @@ export default function App() {
         return firstDistance - secondDistance;
       })
     : [];
-  const routeDestinationPoi = sortedRoutePlaces.find((poi) => poi.type === 'hospital' || poi.type === 'business');
-  const routeDestination = routeDestinationPoi?.name.replace(/ \(.*\)$/, '') || (aiState?.routeDetails ? 'Selected Abu Dhabi destination' : undefined);
   const routeNearbyPlaces = sortedRoutePlaces
     .filter((poi) => poi.type !== 'home' && poi.type !== 'business' && poi.type !== 'bank' && poi.type !== 'school')
     .filter((poi) => aiState?.mapAction && Math.hypot(poi.latitude - aiState.mapAction.latitude, poi.longitude - aiState.mapAction.longitude) < 0.045)
     .slice(0, 3);
-  const districtFocus: [number, number] = aiState?.mapAction
-    ? [Math.max(-3.5, Math.min(3.5, (aiState.mapAction.longitude - activeArea.longitude) * 35)), Math.max(-3.5, Math.min(3.5, (activeArea.latitude - aiState.mapAction.latitude) * 35))]
-    : [0, 0];
-
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-sand-900 font-sans">
-      
-      {/* Map Layer */}
-      <div className={"absolute inset-0 z-0 transition-opacity duration-1000 " + (timeOfDay === 'night' ? 'opacity-50' : 'opacity-100')}>
-        <MapContainer 
-          center={[findAbuDhabiArea(selectedNeighborhood)?.latitude || ABU_DHABI_AREAS[0].latitude, findAbuDhabiArea(selectedNeighborhood)?.longitude || ABU_DHABI_AREAS[0].longitude]}
-          zoom={14} 
-          zoomControl={false} 
-          attributionControl={true}
-          className="w-full h-full"
-        >
-          <TileLayer 
-            attribution='Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" 
-          />
-          <MapUpdater state={aiState} isTransitRoute={isTransitActive} />
-        </MapContainer>
-      </div>
+
+      <Suspense fallback={<div className="absolute inset-0 z-0 grid place-items-center bg-[#102326] text-sm text-white/70">Preparing the Abu Dhabi 3D map…</div>}>
+        <MapLibreExperience
+          area={activeArea}
+          state={aiState}
+          route={aiState?.routeDetails}
+          nearbyPlaces={routeNearbyPlaces}
+          temperature={liveWeather.temp}
+          apparentTemperature={liveWeather.apparentTemp}
+        />
+      </Suspense>
 
       <RehearsalGuide
         name={profile.name}
@@ -395,20 +310,6 @@ export default function App() {
         onTimeChange={setTimeOfDay}
         onLocationChange={focusArea}
       />
-
-      <Suspense fallback={null}>
-        <DistrictExperience
-          area={activeArea}
-          focus={districtFocus}
-          destination={routeDestination}
-          destinationSource={routeDestinationPoi?.source}
-          route={aiState?.routeDetails}
-          nearbyPlaces={routeNearbyPlaces}
-          temperature={liveWeather.temp}
-          apparentTemperature={liveWeather.apparentTemp}
-          onCloseDestination={() => setAiState((current) => current ? { ...current, route: undefined, routeDetails: undefined, distanceKm: undefined, durationMins: undefined, routingSource: undefined, isLiveRouting: undefined } : current)}
-        />
-      </Suspense>
 
       {/* Compact journey header: one primary action, with secondary actions grouped in the menu. */}
       <div className="absolute left-4 right-4 top-4 z-40 flex items-center justify-between pointer-events-auto sm:left-7 sm:right-7 sm:top-6">
